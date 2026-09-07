@@ -50,8 +50,27 @@ impl BeaconClient {
         &self,
         pubkeys: &[String],
     ) -> Result<(HashMap<String, u64>, HashMap<String, String>)> {
+        let full = self.get_validators_full_data(pubkeys).await?;
+        let mut indices = HashMap::with_capacity(full.len());
+        let mut credentials = HashMap::with_capacity(full.len());
+
+        for (pubkey, data) in full {
+            if let Ok(idx) = data.index.parse::<u64>() {
+                indices.insert(pubkey.clone(), idx);
+            }
+            credentials.insert(pubkey, data.validator.withdrawal_credentials);
+        }
+
+        Ok((indices, credentials))
+    }
+
+    /// Queries full validator data (indices, status, effective balance, withdrawal credentials, slashed) for a batch of public keys.
+    pub async fn get_validators_full_data(
+        &self,
+        pubkeys: &[String],
+    ) -> Result<HashMap<String, ValidatorData>> {
         if pubkeys.is_empty() {
-            return Ok((HashMap::new(), HashMap::new()));
+            return Ok(HashMap::new());
         }
 
         // Primary path: POST /eth/v1/beacon/states/head/validators
@@ -60,14 +79,22 @@ impl BeaconClient {
             .post_json::<ValidatorsResponse, _>("/eth/v1/beacon/states/head/validators", &payload)
             .await
         {
-            return Ok(parse_validator_details(parsed.data));
+            let mut map = HashMap::with_capacity(parsed.data.len());
+            for item in parsed.data {
+                map.insert(item.validator.pubkey.to_lowercase(), item);
+            }
+            return Ok(map);
         }
 
         // Fallback path: GET with comma-separated pubkeys
         let ids_param = pubkeys.join(",");
         let path = format!("/eth/v1/beacon/states/head/validators?id={}", ids_param);
         let parsed: ValidatorsResponse = self.get_json(&path).await?;
-        Ok(parse_validator_details(parsed.data))
+        let mut map = HashMap::with_capacity(parsed.data.len());
+        for item in parsed.data {
+            map.insert(item.validator.pubkey.to_lowercase(), item);
+        }
+        Ok(map)
     }
 
     /// Fetches finality checkpoints for a given state (e.g. "head").
@@ -183,21 +210,4 @@ impl BeaconClient {
             ))
         })
     }
-}
-
-/// Helper function to parse and map validator data into pubkey -> index and pubkey -> withdrawal_credentials maps.
-fn parse_validator_details(
-    data: Vec<ValidatorData>,
-) -> (HashMap<String, u64>, HashMap<String, String>) {
-    let mut indices = HashMap::with_capacity(data.len());
-    let mut credentials = HashMap::with_capacity(data.len());
-
-    for item in data {
-        let pubkey_norm = item.validator.pubkey.to_lowercase();
-        if let Ok(idx) = item.index.parse::<u64>() {
-            indices.insert(pubkey_norm.clone(), idx);
-        }
-        credentials.insert(pubkey_norm, item.validator.withdrawal_credentials);
-    }
-    (indices, credentials)
 }

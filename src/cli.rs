@@ -1,11 +1,12 @@
-use clap::{CommandFactory, Parser, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum OutputFormat {
+    #[default]
     All,
     Markdown,
     Json,
@@ -29,16 +30,32 @@ impl fmt::Display for OutputFormat {
     author = "intelliDean <o.michaeldean@gmail.com>, Staketrace Contributors",
     version,
     about = "Traces, simulates, and verifies Ethereum validator consolidations (EIP-7251 MaxEB) across Execution & Consensus layers.",
-    long_about = "A high-assurance, read-only CLI tool that traces Ethereum validator consolidation requests from Execution Layer predeploy transactions to exact Consensus Layer pending_consolidations state delta proofs."
+    long_about = "A high-assurance CLI tool that simulates and verifies Ethereum validator consolidation requests from Execution Layer predeploy transactions to exact Consensus Layer state delta proofs."
 )]
 pub struct CliArgs {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
+    #[command(flatten)]
+    pub verify: VerifyArgs,
+
+    /// Generate shell autocompletions (bash, zsh, fish, powershell, elvish)
+    #[arg(long, value_name = "SHELL")]
+    pub generate_completions: Option<Shell>,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum Commands {
+    /// Cross-layer verification of submitted consolidation transactions
+    Verify(VerifyArgs),
+    /// Pre-flight safety simulation of consolidation batches before on-chain submission
+    Simulate(SimulateArgs),
+}
+
+#[derive(Parser, Debug, Clone, Default)]
+pub struct VerifyArgs {
     /// Path to the validator consolidation manifest file (JSON or YAML)
-    #[arg(
-        short,
-        long,
-        value_name = "PATH",
-        required_unless_present = "generate_completions"
-    )]
+    #[arg(short, long, value_name = "PATH")]
     pub manifest: Option<PathBuf>,
 
     /// Execution layer transaction hash(es) separated by comma or specified multiple times
@@ -46,8 +63,7 @@ pub struct CliArgs {
         short = 't',
         long = "el-tx",
         value_name = "TX_HASH",
-        value_delimiter = ',',
-        required_unless_present = "generate_completions"
+        value_delimiter = ','
     )]
     pub el_txs: Vec<String>,
 
@@ -85,16 +101,53 @@ pub struct CliArgs {
     #[arg(long, default_value_t = 30, value_name = "SECONDS")]
     pub timeout: u64,
 
-    /// Generate shell autocompletions (bash, zsh, fish, powershell, elvish)
-    #[arg(long, value_name = "SHELL")]
-    pub generate_completions: Option<Shell>,
+    /// Suppress informative logging
+    #[arg(short, long)]
+    pub quiet: bool,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct SimulateArgs {
+    /// Path to the validator consolidation manifest file (JSON or YAML)
+    #[arg(short, long, value_name = "PATH")]
+    pub manifest: PathBuf,
+
+    /// Ethereum Consensus Layer Beacon API URL (e.g. http://127.0.0.1:5052)
+    #[arg(
+        long,
+        env = "CL_BEACON_API_URL",
+        value_name = "URL",
+        default_value = "http://127.0.0.1:5052"
+    )]
+    pub cl_beacon_api: String,
+
+    /// Optional Ethereum Execution Layer JSON-RPC URL
+    #[arg(long, env = "EL_RPC_URL", value_name = "URL")]
+    pub el_rpc: Option<String>,
+
+    /// Output directory where simulation report and JSON will be saved
+    #[arg(
+        short,
+        long,
+        default_value = "./staketrace_simulation",
+        value_name = "DIR"
+    )]
+    pub output_dir: PathBuf,
+
+    /// Output format to print to stdout (all, markdown, json, csv)
+    #[arg(long, value_enum, default_value = "all")]
+    pub format: OutputFormat,
+
+    /// HTTP request timeout in seconds
+    #[arg(long, default_value_t = 30, value_name = "SECONDS")]
+    pub timeout: u64,
 
     /// Suppress informative logging
     #[arg(short, long)]
     pub quiet: bool,
 }
 
-impl CliArgs {
+impl VerifyArgs {
     /// Returns trimmed and normalized transaction hashes.
     pub fn normalized_el_txs(&self) -> Vec<String> {
         self.el_txs
@@ -110,7 +163,9 @@ impl CliArgs {
             })
             .collect()
     }
+}
 
+impl CliArgs {
     /// Generates shell completion script into the provided writer.
     pub fn generate_completions_to<W: io::Write>(shell: Shell, buf: &mut W) {
         let mut cmd = Self::command();
@@ -137,18 +192,38 @@ mod tests {
             "0x1234,0x5678",
         ]);
 
-        assert_eq!(args.manifest, Some(PathBuf::from("manifest.json")));
-        assert_eq!(args.el_txs, vec!["0x1234", "0x5678"]);
-        assert_eq!(args.normalized_el_txs(), vec!["0x1234", "0x5678"]);
-        assert_eq!(args.format, OutputFormat::All);
-        assert!(!args.quiet);
+        assert_eq!(args.verify.manifest, Some(PathBuf::from("manifest.json")));
+        assert_eq!(args.verify.el_txs, vec!["0x1234", "0x5678"]);
+        assert_eq!(args.verify.normalized_el_txs(), vec!["0x1234", "0x5678"]);
+        assert_eq!(args.verify.format, OutputFormat::All);
+        assert!(!args.verify.quiet);
+    }
+
+    #[test]
+    fn test_subcommand_simulate_parsing() {
+        let args = CliArgs::parse_from([
+            "staketrace",
+            "simulate",
+            "--manifest",
+            "manifest.json",
+            "--cl-beacon-api",
+            "http://beacon:5052",
+        ]);
+
+        match args.command {
+            Some(Commands::Simulate(sim)) => {
+                assert_eq!(sim.manifest, PathBuf::from("manifest.json"));
+                assert_eq!(sim.cl_beacon_api, "http://beacon:5052");
+            }
+            _ => panic!("Expected simulate subcommand"),
+        }
     }
 
     #[test]
     fn test_normalized_el_txs_adds_prefix() {
         let args =
             CliArgs::parse_from(["staketrace", "--manifest", "manifest.json", "-t", "abcdef"]);
-        assert_eq!(args.normalized_el_txs(), vec!["0xabcdef"]);
+        assert_eq!(args.verify.normalized_el_txs(), vec!["0xabcdef"]);
     }
 
     #[test]

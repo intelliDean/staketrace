@@ -21,10 +21,11 @@ pub mod lido;
 pub mod manifest;
 pub mod models;
 pub mod receipt;
+pub mod simulate;
 pub mod terminal;
 
 pub use cl::BeaconClient;
-pub use cli::{CliArgs, OutputFormat};
+pub use cli::{CliArgs, Commands, OutputFormat, SimulateArgs, VerifyArgs};
 pub use el::ElClient;
 pub use engine::VerificationEngine;
 pub use error::{AppError, Result};
@@ -36,4 +37,8 @@ pub use models::{
 pub use receipt::{
     EvidenceWriter, ReceiptArtifacts, generate_and_save_receipts, generate_csv_receipt,
     generate_json_receipt, generate_markdown_receipt,
+};
+pub use simulate::{
+    PairSimulationResult, SimulationEngine, SimulationReport, SimulationSummary,
+    generate_simulation_markdown,
 };

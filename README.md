@@ -93,12 +93,76 @@ cargo build --release
 
 ## CLI Usage
 
-```bash
-staketrace [OPTIONS] --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-beacon-api <URL>
+`staketrace` provides two primary workflows: **Pre-Flight Simulation (`simulate`)** to dry-run validator batches before spending gas or signing transactions, and **Cross-Layer Verification (`verify`)** to prove exact Consensus Layer execution after broadcasting.
+
+```
+                  ┌─────────────────────────────────────────┐
+                  │ 1. PRE-FLIGHT SIMULATION (`simulate`)   │
+                  │   • Validates 0x01/0x02 credentials     │
+                  │   • Enforces ≥32 ETH activation balance │
+                  │   • Enforces ≤2,048 ETH MaxEB ceiling   │
+                  │   • Detects pending queue collisions    │
+                  │   • Estimates total batch gas overhead  │
+                  └────────────────────┬────────────────────┘
+                                       │ (Proceed only if all ELIGIBLE)
+                                       ▼
+                  ┌─────────────────────────────────────────┐
+                  │ 2. BROADCAST ON-CHAIN TRANSACTION       │
+                  │    Call 0x0000BBdDc7CE488642fb579F8B00  │
+                  └────────────────────┬────────────────────┘
+                                       │ (EL Tx Hash generated)
+                                       ▼
+                  ┌─────────────────────────────────────────┐
+                  │ 3. CROSS-LAYER VERIFICATION (`verify`)  │
+                  │   • Predeploy calldata byte matching    │
+                  │   • Consensus block request scanning    │
+                  │   • State delta (absent -> present)     │
+                  │   • Epoch finality checkpoint proofs    │
+                  └─────────────────────────────────────────┘
 ```
 
-### Options Reference
+---
 
+### Command 1: Pre-Flight Simulation (`staketrace simulate`)
+
+Dry-run validator consolidation manifests against the live Beacon Chain before broadcasting transactions.
+
+```bash
+staketrace simulate --manifest <PATH> --cl-beacon-api <URL> [OPTIONS]
+```
+
+#### Options:
+| Flag | Env Var | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `-m, --manifest <PATH>` | - | *Required* | Path to validator consolidation manifest (JSON or YAML) |
+| `--cl-beacon-api <URL>` | `CL_BEACON_API_URL` | `http://127.0.0.1:5052` | Consensus Layer Beacon API endpoint |
+| `--el-rpc <URL>` | `EL_RPC_URL` | - | Optional Execution Layer JSON-RPC endpoint |
+| `-o, --output-dir <DIR>` | - | `./staketrace_simulation` | Directory to save simulation report and JSON |
+| `--format <FORMAT>` | - | `all` | Output format to print to stdout (`all`, `markdown`, `json`, `csv`) |
+| `--timeout <SECONDS>` | - | `30` | Beacon API HTTP request timeout in seconds |
+| `-q, --quiet` | - | `false` | Suppress interactive banners |
+
+#### Example:
+```bash
+staketrace simulate \
+  --manifest ./manifest.json \
+  --cl-beacon-api https://bn.hoodi.ethpandaops.io \
+  --output-dir ./sim_results
+```
+
+---
+
+### Command 2: Cross-Layer Verification (`staketrace verify` or top-level)
+
+Trace and mathematically prove consolidation request inclusion, state delta transitions, and finality across execution and consensus layers.
+
+```bash
+staketrace verify --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-beacon-api <URL> [OPTIONS]
+```
+
+*(Note: top-level invocation `staketrace --manifest ... --el-tx ...` is fully backward compatible)*
+
+#### Options:
 | Flag | Env Var | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `-m, --manifest <PATH>` | - | *Required* | Path to validator consolidation manifest (JSON or YAML) |
@@ -106,23 +170,21 @@ staketrace [OPTIONS] --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-bea
 | `--el-rpc <URL>` | `EL_RPC_URL` | `http://127.0.0.1:8545` | Execution Layer JSON-RPC endpoint |
 | `--cl-beacon-api <URL>` | `CL_BEACON_API_URL` | `http://127.0.0.1:5052` | Consensus Layer Beacon API endpoint |
 | `--st-vault-dashboard <ADDR>` | `ST_VAULT_DASHBOARD` | - | Optional Lido stVault Dashboard / ACL contract address |
-| `--timeout <SECONDS>` | - | `30` | HTTP request timeout for RPC and Beacon API queries |
 | `-o, --output-dir <DIR>` | - | `./staketrace_output` | Directory to write receipts and evidence |
 | `--format <FORMAT>` | - | `all` | Output format to print to stdout (`all`, `markdown`, `json`, `csv`) |
+| `--timeout <SECONDS>` | - | `30` | HTTP request timeout for RPC and Beacon API queries |
 | `--generate-completions <SHELL>` | - | - | Generate autocompletions (`bash`, `zsh`, `fish`, `powershell`, `elvish`) |
 | `-q, --quiet` | - | `false` | Suppress interactive banners and informative logs |
 
-### Example Run
-
+#### Example:
 ```bash
-staketrace \
+staketrace verify \
   --manifest ./tests/fixtures/hoodi/manifest.json \
   --el-tx 0x4a2a33f81e69b07ef94dd6d9dfd7ab6c7e112d7c07dd5aa9e8a83d3e8e2e92c4 \
   --el-rpc https://rpc.hoodi.ethpandaops.io \
   --cl-beacon-api https://bn.hoodi.ethpandaops.io \
   --st-vault-dashboard 0x1234567890123456789012345678901234567890 \
-  --timeout 45 \
-  --output-dir ./output
+  --output-dir ./verification_receipts
 ```
 
 ---
@@ -155,12 +217,15 @@ Supports target-to-sources mapping formats as well as flat lists:
 
 ## Generated Output Files
 
-Running the tool produces four primary audit artifacts in the output directory:
-
+### Verification Artifacts (`staketrace verify`):
 1. **`receipt_summary.md`**: Human-readable report with status badges, delta proofs, and derived account role audits.
 2. **`receipt.json`**: Full machine-readable receipt for automated CI/CD pipelines.
 3. **`consolidations.csv`**: Tabular CSV breakdown of all source/target indices, tx hashes, and statuses.
 4. **`evidence/`**: Raw block headers, execution receipts, and state query responses.
+
+### Simulation Artifacts (`staketrace simulate`):
+1. **`simulation_summary.md`**: Human-readable pre-flight safety report with gas estimates and balance projections.
+2. **`simulation.json`**: Machine-readable pre-flight diagnosis for automated batch orchestrators.
 
 ---
 
@@ -179,3 +244,4 @@ cargo test -- --nocapture
 ## License
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE).
+

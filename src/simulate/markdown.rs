@@ -1,0 +1,158 @@
+use super::models::SimulationReport;
+use std::fmt::Write;
+
+/// Generates a GitHub-flavored Markdown simulation report.
+pub fn generate_simulation_markdown(report: &SimulationReport) -> String {
+    let mut md = String::with_capacity(4096);
+
+    let _ = writeln!(md, "# Ethereum Validator Consolidation Simulation Report\n");
+    let _ = writeln!(md, "**Generated At:** {}", report.timestamp.to_rfc3339());
+    let _ = writeln!(md, "**CLI Tool Version:** v{}", report.tool_version);
+    let _ = writeln!(md, "**Consensus Beacon API:** `{}`", report.cl_beacon_url);
+    if let Some(ref el) = report.el_rpc_url {
+        let _ = writeln!(md, "**Execution Layer RPC:** `{}`", el);
+    }
+    let _ = writeln!(md);
+
+    // Status Banner
+    if report.summary.is_all_eligible() {
+        let _ = writeln!(md, "> [!NOTE]");
+        let _ = writeln!(
+            md,
+            "> **SIMULATION PASSED: ALL PAIRS ARE ELIGIBLE FOR CONSOLIDATION**"
+        );
+        let _ = writeln!(
+            md,
+            "> All source and target validator pairs have verified matching withdrawal credentials, valid active statuses, and sufficient balances under EIP-7251 rules.\n"
+        );
+    } else {
+        let _ = writeln!(md, "> [!WARNING]");
+        let _ = writeln!(
+            md,
+            "> **SIMULATION WARNING: {} OF {} PAIRS ARE INELIGIBLE**",
+            report.summary.ineligible_pairs, report.summary.total_pairs
+        );
+        let _ = writeln!(
+            md,
+            "> Submitting transactions with ineligible pairs will cause on-chain consensus rejections and wasted gas. Please resolve the errors below before broadcasting.\n"
+        );
+    }
+
+    // Summary Metrics Table
+    let _ = writeln!(md, "## Simulation Summary Metrics\n");
+    let _ = writeln!(md, "| Metric | Value |");
+    let _ = writeln!(md, "| :--- | :--- |");
+    let _ = writeln!(md, "| **Total Pairs** | `{}` |", report.summary.total_pairs);
+    let _ = writeln!(
+        md,
+        "| **Eligible Pairs** | `{} (✅ {:.1}%)` |",
+        report.summary.eligible_pairs,
+        if report.summary.total_pairs > 0 {
+            (report.summary.eligible_pairs as f64 / report.summary.total_pairs as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
+    let _ = writeln!(
+        md,
+        "| **Ineligible Pairs** | `{}` |",
+        report.summary.ineligible_pairs
+    );
+    let _ = writeln!(
+        md,
+        "| **Active Warnings** | `{}` |",
+        report.summary.warning_count
+    );
+    let _ = writeln!(
+        md,
+        "| **Total Source Balance** | `{:.2} ETH` |",
+        (report.summary.total_source_balance_gwei as f64) / 1_000_000_000.0
+    );
+    let _ = writeln!(
+        md,
+        "| **Projected Target Balance** | `{:.2} ETH` |",
+        (report.summary.projected_target_balance_gwei as f64) / 1_000_000_000.0
+    );
+    let _ = writeln!(
+        md,
+        "| **Estimated Total Gas** | `~{} gas` |\n",
+        report.summary.estimated_total_gas
+    );
+
+    // Pair Details Table
+    let _ = writeln!(md, "## Pair-by-Pair Pre-Flight Simulation\n");
+    let _ = writeln!(
+        md,
+        "| # | Source Validator | Target Validator | Credentials | Status | Result / Diagnosis |"
+    );
+    let _ = writeln!(md, "| :-: | :--- | :--- | :--- | :--- | :--- |");
+
+    for (i, pair) in report.pairs.iter().enumerate() {
+        let src_label = format!(
+            "`{}` ({:.1} ETH)",
+            pair.source_index
+                .map(|idx| format!("#{}", idx))
+                .unwrap_or_else(|| truncate_key(&pair.source_pubkey)),
+            pair.source_effective_balance_gwei
+                .map(|b| (b as f64) / 1_000_000_000.0)
+                .unwrap_or(0.0)
+        );
+
+        let tgt_label = format!(
+            "`{}` (Proj: {:.1} ETH)",
+            pair.target_index
+                .map(|idx| format!("#{}", idx))
+                .unwrap_or_else(|| truncate_key(&pair.target_pubkey)),
+            pair.projected_target_balance_gwei
+                .map(|b| (b as f64) / 1_000_000_000.0)
+                .unwrap_or(0.0)
+        );
+
+        let creds_badge = if pair.credentials_match {
+            "✅ Match"
+        } else {
+            "❌ Mismatch"
+        };
+
+        let result_badge = if pair.eligible {
+            "✅ **ELIGIBLE**"
+        } else {
+            "❌ **REJECTED**"
+        };
+
+        let diagnosis = if let Some(ref reason) = pair.rejection_reason {
+            format!("⚠️ **Error:** {}", reason)
+        } else if !pair.warnings.is_empty() {
+            format!("ℹ️ {}", pair.warnings.join("; "))
+        } else {
+            "Ready for submission".to_string()
+        };
+
+        let _ = writeln!(
+            md,
+            "| {} | {} | {} | {} | {} | {} |",
+            i + 1,
+            src_label,
+            tgt_label,
+            creds_badge,
+            result_badge,
+            diagnosis
+        );
+    }
+
+    let _ = write!(
+        md,
+        "\n---\n*Generated by `staketrace` v{} (Ethereum Validator Auditor)*\n",
+        report.tool_version
+    );
+
+    md
+}
+
+fn truncate_key(key: &str) -> String {
+    if key.len() > 14 {
+        format!("{}...{}", &key[..6], &key[key.len() - 4..])
+    } else {
+        key.to_string()
+    }
+}
