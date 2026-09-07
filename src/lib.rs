@@ -17,6 +17,7 @@ pub mod cli;
 pub mod el;
 pub mod engine;
 pub mod error;
+pub mod exit;
 pub mod lido;
 pub mod manifest;
 pub mod models;
@@ -25,11 +26,17 @@ pub mod simulate;
 pub mod terminal;
 
 pub use cl::BeaconClient;
-pub use cli::{CliArgs, Commands, OutputFormat, SimulateArgs, VerifyArgs};
-pub use el::ElClient;
+pub use cli::{CliArgs, Commands, ExitArgs, OutputFormat, SimulateArgs, VerifyArgs};
+pub use el::{EXIT_PREDEPLOY_ADDRESS, ElClient, ExitPredeploy};
 pub use engine::VerificationEngine;
 pub use error::{AppError, Result};
-pub use manifest::{parse_manifest_file, parse_manifest_str};
+pub use exit::{
+    ExitEngine, ExitReceipt, ExitRequest, ExitSummary, ExitVerificationResult, generate_exit_csv,
+    generate_exit_markdown,
+};
+pub use manifest::{
+    parse_exit_manifest_file, parse_exit_manifest_str, parse_manifest_file, parse_manifest_str,
+};
 pub use models::{
     ConsolidationPair, ConsolidationStatus, PairVerificationResult, VerificationReceipt,
     VerificationSummary,

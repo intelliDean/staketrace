@@ -48,6 +48,23 @@ pub struct ConsolidationRequestItem {
     pub target_index: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WithdrawalRequestItem {
+    #[serde(alias = "source_address", alias = "sourceAddress", default)]
+    pub source_address: Option<String>,
+    #[serde(
+        alias = "validator_pubkey",
+        alias = "validatorPubkey",
+        alias = "pubkey",
+        default
+    )]
+    pub validator_pubkey: Option<String>,
+    #[serde(alias = "amount", default)]
+    pub amount: Option<String>,
+    #[serde(alias = "validator_index", alias = "validatorIndex", default)]
+    pub validator_index: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingConsolidationItem {
     pub source_index: String,
@@ -83,9 +100,29 @@ pub struct BeaconBlockBody {
     pub execution_requests: Option<ExecutionRequests>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExecutionRequests {
     pub consolidations: Option<Vec<ConsolidationRequestItem>>,
+    pub withdrawals: Option<Vec<WithdrawalRequestItem>>,
+    #[serde(alias = "withdrawal_requests", alias = "withdrawalRequests")]
+    pub withdrawal_requests: Option<Vec<WithdrawalRequestItem>>,
+    pub exits: Option<Vec<WithdrawalRequestItem>>,
+}
+
+impl ExecutionRequests {
+    /// Returns the combined or aliased list of EIP-7002 withdrawal/exit requests from the block body.
+    pub fn get_withdrawals(&self) -> Vec<WithdrawalRequestItem> {
+        if let Some(ref w) = self.withdrawals {
+            return w.clone();
+        }
+        if let Some(ref w) = self.withdrawal_requests {
+            return w.clone();
+        }
+        if let Some(ref e) = self.exits {
+            return e.clone();
+        }
+        Vec::new()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

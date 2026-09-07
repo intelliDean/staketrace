@@ -93,7 +93,10 @@ cargo build --release
 
 ## CLI Usage
 
-`staketrace` provides two primary workflows: **Pre-Flight Simulation (`simulate`)** to dry-run validator batches before spending gas or signing transactions, and **Cross-Layer Verification (`verify`)** to prove exact Consensus Layer execution after broadcasting.
+`staketrace` provides three core workflows:
+1. **Pre-Flight Simulation (`staketrace simulate`)** to dry-run validator consolidation batches before spending gas or signing transactions.
+2. **Cross-Layer Consolidation Verification (`staketrace verify`)** to prove exact EIP-7251 Consensus Layer execution after broadcasting.
+3. **Validator Exit Verification (`staketrace exit`)** to trace and prove EIP-7002 Execution-Layer-triggered validator exits and partial withdrawals.
 
 ```
                   ┌─────────────────────────────────────────┐
@@ -109,14 +112,16 @@ cargo build --release
                   ┌─────────────────────────────────────────┐
                   │ 2. BROADCAST ON-CHAIN TRANSACTION       │
                   │    Call 0x0000BBdDc7CE488642fb579F8B00  │
+                  │    (...7251 for MaxEB, ...7002 for Exit)│
                   └────────────────────┬────────────────────┘
                                        │ (EL Tx Hash generated)
                                        ▼
                   ┌─────────────────────────────────────────┐
-                  │ 3. CROSS-LAYER VERIFICATION (`verify`)  │
+                  │ 3. CROSS-LAYER VERIFICATION             │
+                  │   • Consolidation: `staketrace verify`  │
+                  │   • Validator Exits: `staketrace exit`  │
                   │   • Predeploy calldata byte matching    │
                   │   • Consensus block request scanning    │
-                  │   • State delta (absent -> present)     │
                   │   • Epoch finality checkpoint proofs    │
                   └─────────────────────────────────────────┘
 ```
@@ -152,9 +157,9 @@ staketrace simulate \
 
 ---
 
-### Command 2: Cross-Layer Verification (`staketrace verify` or top-level)
+### Command 2: Cross-Layer Consolidation Verification (`staketrace verify` or top-level)
 
-Trace and mathematically prove consolidation request inclusion, state delta transitions, and finality across execution and consensus layers.
+Trace and mathematically prove EIP-7251 consolidation request inclusion, state delta transitions, and finality across execution and consensus layers.
 
 ```bash
 staketrace verify --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-beacon-api <URL> [OPTIONS]
@@ -179,7 +184,7 @@ staketrace verify --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-beacon
 #### Example:
 ```bash
 staketrace verify \
-  --manifest ./tests/fixtures/hoodi/manifest.json \
+  --manifest ./manifest.json \
   --el-tx 0x4a2a33f81e69b07ef94dd6d9dfd7ab6c7e112d7c07dd5aa9e8a83d3e8e2e92c4 \
   --el-rpc https://rpc.hoodi.ethpandaops.io \
   --cl-beacon-api https://bn.hoodi.ethpandaops.io \
@@ -189,11 +194,43 @@ staketrace verify \
 
 ---
 
+### Command 3: EIP-7002 Validator Exit Verification (`staketrace exit`)
+
+Trace and mathematically prove EIP-7002 Execution-Layer-triggered validator exits and partial withdrawals across the exit predeploy (`0x0000BBdDc7CE488642fb579F8B00f3a590007002`) and Consensus Layer block `execution_requests.withdrawals`.
+
+```bash
+staketrace exit --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-beacon-api <URL> [OPTIONS]
+```
+
+#### Options:
+| Flag | Env Var | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `-m, --manifest <PATH>` | - | *Required* | Path to validator exit manifest (JSON or YAML) |
+| `-t, --el-tx <TX_HASH>` | - | *Required* | EL transaction hash (comma-separated or repeated) |
+| `--el-rpc <URL>` | `EL_RPC_URL` | `http://127.0.0.1:8545` | Execution Layer JSON-RPC endpoint |
+| `--cl-beacon-api <URL>` | `CL_BEACON_API_URL` | `http://127.0.0.1:5052` | Consensus Layer Beacon API endpoint |
+| `-o, --output-dir <DIR>` | - | `./staketrace_exit_output` | Directory to write exit receipts and evidence |
+| `--format <FORMAT>` | - | `all` | Output format to print to stdout (`all`, `markdown`, `json`, `csv`) |
+| `--timeout <SECONDS>` | - | `30` | HTTP request timeout for RPC and Beacon API queries |
+| `-q, --quiet` | - | `false` | Suppress interactive banners and informative logs |
+
+#### Example:
+```bash
+staketrace exit \
+  --manifest ./exit_manifest.json \
+  --el-tx 0x8f3c7e112d7c07dd5aa9e8a83d3e8e2e92c48858e37ab7b3117562ad846ef329 \
+  --el-rpc https://rpc.hoodi.ethpandaops.io \
+  --cl-beacon-api https://bn.hoodi.ethpandaops.io \
+  --output-dir ./exit_receipts
+```
+
+---
+
 ## Manifest Format Support
 
+### Consolidation Manifests (EIP-7251):
 Supports target-to-sources mapping formats as well as flat lists:
 
-### Target-to-Sources Map Format:
 ```json
 {
   "0x96b6e41b9d1bb8bb4be6fb98f6d7ab7b1a206a445e9bb5f5c1d683777d13e3db85be12aa219e27c73ffbb7be2e92c488": [
@@ -203,13 +240,13 @@ Supports target-to-sources mapping formats as well as flat lists:
 }
 ```
 
-### List Format:
+### Exit Manifests (EIP-7002):
+Supports lists of pubkeys (for full exits) or objects with withdrawal amounts (in Gwei):
+
 ```json
 [
-  {
-    "target_pubkey": "0x96b6...",
-    "source_pubkeys": ["0x8a92...", "0xa4a2..."]
-  }
+  { "pubkey": "0x8a9233f81e69b07ef94dd6d9dfd7ab6c7e112d7c07dd5aa9e8a83d3e8e2e92c48858e37ab7b3117562ad846ef3294ee1", "amount": 0 },
+  { "pubkey": "0xa4a233f81e69b07ef94dd6d9dfd7ab6c7e112d7c07dd5aa9e8a83d3e8e2e92c48858e37ab7b3117562ad846ef3294ee2", "amount": 16000000000 }
 ]
 ```
 
@@ -222,6 +259,11 @@ Supports target-to-sources mapping formats as well as flat lists:
 2. **`receipt.json`**: Full machine-readable receipt for automated CI/CD pipelines.
 3. **`consolidations.csv`**: Tabular CSV breakdown of all source/target indices, tx hashes, and statuses.
 4. **`evidence/`**: Raw block headers, execution receipts, and state query responses.
+
+### Exit Artifacts (`staketrace exit`):
+1. **`exit_receipt_summary.md`**: Human-readable report detailing validator exits, withdrawal amounts, and finality status.
+2. **`exit_receipt.json`**: Machine-readable exit verification receipt.
+3. **`exits.csv`**: Tabular CSV breakdown of all exited validators, slots, and block roots.
 
 ### Simulation Artifacts (`staketrace simulate`):
 1. **`simulation_summary.md`**: Human-readable pre-flight safety report with gas estimates and balance projections.
@@ -244,4 +286,5 @@ cargo test -- --nocapture
 ## License
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE).
+
 

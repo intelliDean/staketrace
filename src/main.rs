@@ -1,10 +1,11 @@
 use clap::Parser;
 use colored::*;
-use staketrace::cli::{CliArgs, Commands, SimulateArgs, VerifyArgs};
+use staketrace::cli::{CliArgs, Commands, ExitArgs, SimulateArgs, VerifyArgs};
 use staketrace::terminal;
 use staketrace::{
-    AppError, BeaconClient, ElClient, SimulationEngine, VerificationEngine,
-    generate_and_save_receipts, generate_simulation_markdown, parse_manifest_file,
+    AppError, BeaconClient, ElClient, ExitEngine, SimulationEngine, VerificationEngine,
+    generate_and_save_receipts, generate_exit_csv, generate_exit_markdown,
+    generate_simulation_markdown, parse_exit_manifest_file, parse_manifest_file,
 };
 use std::fs;
 use std::process::ExitCode;
@@ -22,6 +23,7 @@ async fn main() -> ExitCode {
     let result = match args.command {
         Some(Commands::Simulate(sim_args)) => run_simulation(sim_args).await,
         Some(Commands::Verify(verify_args)) => run_verification(verify_args).await,
+        Some(Commands::Exit(exit_args)) => run_exit(exit_args).await,
         None => run_verification(args.verify).await,
     };
 
@@ -38,6 +40,67 @@ async fn main() -> ExitCode {
             ExitCode::from(e.exit_code())
         }
     }
+}
+
+/// Executes the EIP-7002 validator exit verification pipeline.
+/// Returns `Ok(true)` if all exit requests are accepted and finalized, or `Ok(false)` otherwise.
+async fn run_exit(args: ExitArgs) -> Result<bool, AppError> {
+    if !args.quiet {
+        terminal::print_banner();
+        println!("🚪 Mode: EIP-7002 Validator Exit & Partial Withdrawal Verification");
+        println!("📂 Parsing exit manifest: {}", args.manifest.display());
+    }
+
+    // Step 1: Parse Exit Manifest
+    let requests = parse_exit_manifest_file(&args.manifest)?;
+
+    if !args.quiet {
+        println!("   Found {} exit requests in manifest.", requests.len());
+        println!("⚡ Connecting to Execution Layer RPC: {}", args.el_rpc);
+        println!(
+            "📡 Connecting to Consensus Beacon API: {}",
+            args.cl_beacon_api
+        );
+        println!("🔍 Running EIP-7002 cross-layer verification...");
+    }
+
+    // Step 2: Initialize RPC Clients
+    let timeout = std::time::Duration::from_secs(args.timeout);
+    let el_client = ElClient::with_timeout(&args.el_rpc, timeout);
+    let beacon_client = BeaconClient::with_timeout(&args.cl_beacon_api, timeout);
+
+    // Step 3: Execute Exit Verification
+    let normalized_txs = args.normalized_el_txs();
+    let receipt =
+        ExitEngine::run_verification(&requests, &normalized_txs, &el_client, &beacon_client)
+            .await?;
+
+    // Step 4: Save Exit Artifacts
+    fs::create_dir_all(&args.output_dir)?;
+    let md_content = generate_exit_markdown(&receipt);
+    let json_content = serde_json::to_string_pretty(&receipt)?;
+    let csv_content = generate_exit_csv(&receipt)?;
+
+    let md_path = args.output_dir.join("exit_receipt_summary.md");
+    let json_path = args.output_dir.join("exit_receipt.json");
+    let csv_path = args.output_dir.join("exits.csv");
+
+    fs::write(&md_path, &md_content)?;
+    fs::write(&json_path, &json_content)?;
+    fs::write(&csv_path, &csv_content)?;
+
+    if !args.quiet {
+        println!(
+            "💾 Exit receipts saved to directory: {}",
+            args.output_dir.display()
+        );
+        terminal::print_exit_results(&receipt);
+    }
+
+    // Print requested raw format
+    terminal::print_requested_format(args.format, &md_content, &json_content, &csv_content);
+
+    Ok(receipt.summary.is_all_accepted())
 }
 
 /// Executes the pre-flight simulation engine.

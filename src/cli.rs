@@ -46,10 +46,12 @@ pub struct CliArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
-    /// Cross-layer verification of submitted consolidation transactions
+    /// Cross-layer verification of submitted consolidation transactions (EIP-7251)
     Verify(VerifyArgs),
     /// Pre-flight safety simulation of consolidation batches before on-chain submission
     Simulate(SimulateArgs),
+    /// Cross-layer verification of Execution-Layer-triggered validator exits (EIP-7002)
+    Exit(ExitArgs),
 }
 
 #[derive(Parser, Debug, Clone, Default)]
@@ -145,6 +147,79 @@ pub struct SimulateArgs {
     /// Suppress informative logging
     #[arg(short, long)]
     pub quiet: bool,
+}
+
+#[derive(Parser, Debug, Clone, Default)]
+pub struct ExitArgs {
+    /// Path to the validator exit manifest file (JSON or YAML list of pubkeys / requests)
+    #[arg(short, long, value_name = "PATH")]
+    pub manifest: PathBuf,
+
+    /// Execution layer transaction hash(es) separated by comma or specified multiple times
+    #[arg(
+        short = 't',
+        long = "el-tx",
+        value_name = "TX_HASH",
+        value_delimiter = ','
+    )]
+    pub el_txs: Vec<String>,
+
+    /// Ethereum Execution Layer JSON-RPC URL (e.g. http://127.0.0.1:8545)
+    #[arg(
+        long,
+        env = "EL_RPC_URL",
+        value_name = "URL",
+        default_value = "http://127.0.0.1:8545"
+    )]
+    pub el_rpc: String,
+
+    /// Ethereum Consensus Layer Beacon API URL (e.g. http://127.0.0.1:5052)
+    #[arg(
+        long,
+        env = "CL_BEACON_API_URL",
+        value_name = "URL",
+        default_value = "http://127.0.0.1:5052"
+    )]
+    pub cl_beacon_api: String,
+
+    /// Output directory where exit receipts and evidence will be saved
+    #[arg(
+        short,
+        long,
+        default_value = "./staketrace_exit_output",
+        value_name = "DIR"
+    )]
+    pub output_dir: PathBuf,
+
+    /// Output format to print to stdout (all, markdown, json, csv)
+    #[arg(long, value_enum, default_value = "all")]
+    pub format: OutputFormat,
+
+    /// HTTP request timeout in seconds
+    #[arg(long, default_value_t = 30, value_name = "SECONDS")]
+    pub timeout: u64,
+
+    /// Suppress informative logging
+    #[arg(short, long)]
+    pub quiet: bool,
+}
+
+impl ExitArgs {
+    /// Returns trimmed and normalized transaction hashes.
+    pub fn normalized_el_txs(&self) -> Vec<String> {
+        self.el_txs
+            .iter()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                if s.starts_with("0x") || s.starts_with("0X") {
+                    s.to_lowercase()
+                } else {
+                    format!("0x{}", s.to_lowercase())
+                }
+            })
+            .collect()
+    }
 }
 
 impl VerifyArgs {

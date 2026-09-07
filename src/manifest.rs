@@ -141,6 +141,106 @@ pub fn parse_manifest_str(content: &str) -> Result<Vec<ConsolidationPair>> {
     Ok(result)
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ExitManifestFormat {
+    StringList(Vec<String>),
+    ExitList(Vec<ExitManifestItem>),
+    ExitsWrapper {
+        #[serde(alias = "validators", alias = "requests")]
+        exits: Vec<ExitManifestItem>,
+    },
+    StringExitsWrapper {
+        #[serde(alias = "validators", alias = "requests")]
+        exits: Vec<String>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct ExitManifestItem {
+    #[serde(
+        alias = "pubkey",
+        alias = "validator_pubkey",
+        alias = "validatorPubkey"
+    )]
+    pubkey: String,
+    #[serde(alias = "amount", alias = "amount_gwei", alias = "amountGwei", default)]
+    amount: Option<u64>,
+}
+
+/// Parses and validates an EIP-7002 validator exit manifest file (JSON or YAML).
+pub fn parse_exit_manifest_file<P: AsRef<Path>>(
+    path: P,
+) -> Result<Vec<crate::exit::models::ExitRequest>> {
+    let p = path.as_ref();
+    let content = std::fs::read_to_string(p).map_err(|e| {
+        AppError::Manifest(format!(
+            "Failed to read exit manifest file '{}': {}",
+            p.display(),
+            e
+        ))
+    })?;
+    parse_exit_manifest_str(&content)
+}
+
+/// Parses and validates an EIP-7002 validator exit manifest string (JSON or YAML).
+pub fn parse_exit_manifest_str(content: &str) -> Result<Vec<crate::exit::models::ExitRequest>> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Manifest(
+            "Exit manifest content is empty".to_string(),
+        ));
+    }
+
+    let raw_items: Vec<(String, u64)> = serde_json::from_str::<ExitManifestFormat>(trimmed)
+        .map(|fmt| match fmt {
+            ExitManifestFormat::StringList(list) => list.into_iter().map(|p| (p, 0)).collect(),
+            ExitManifestFormat::ExitList(list) => {
+                list.into_iter().map(|i| (i.pubkey, i.amount.unwrap_or(0))).collect()
+            }
+            ExitManifestFormat::ExitsWrapper { exits } => {
+                exits.into_iter().map(|i| (i.pubkey, i.amount.unwrap_or(0))).collect()
+            }
+            ExitManifestFormat::StringExitsWrapper { exits } => {
+                exits.into_iter().map(|p| (p, 0)).collect()
+            }
+        })
+        .or_else(|_| {
+            serde_yaml::from_str::<ExitManifestFormat>(trimmed).map(|fmt| match fmt {
+                ExitManifestFormat::StringList(list) => list.into_iter().map(|p| (p, 0)).collect(),
+                ExitManifestFormat::ExitList(list) => {
+                    list.into_iter().map(|i| (i.pubkey, i.amount.unwrap_or(0))).collect()
+                }
+                ExitManifestFormat::ExitsWrapper { exits } => {
+                    exits.into_iter().map(|i| (i.pubkey, i.amount.unwrap_or(0))).collect()
+                }
+                ExitManifestFormat::StringExitsWrapper { exits } => {
+                    exits.into_iter().map(|p| (p, 0)).collect()
+                }
+            })
+        })
+        .map_err(|_| {
+            AppError::Manifest(
+                "Unsupported exit manifest structure. Expected list of pubkey strings or list of exit objects `{ pubkey, amount }`."
+                    .to_string(),
+            )
+        })?;
+
+    if raw_items.is_empty() {
+        return Err(AppError::Manifest(
+            "Exit manifest contains zero validator exit items".to_string(),
+        ));
+    }
+
+    let mut result = Vec::with_capacity(raw_items.len());
+    for (i, (pubkey, amount)) in raw_items.into_iter().enumerate() {
+        validate_pubkey(&pubkey, &format!("exit[{}] pubkey", i))?;
+        result.push(crate::exit::models::ExitRequest::new(pubkey, amount));
+    }
+
+    Ok(result)
+}
+
 /// Validates that a BLS public key is a valid 48-byte hex string (zero heap allocations).
 pub fn validate_pubkey(pubkey: &str, field_desc: &str) -> Result<()> {
     let cleaned = pubkey

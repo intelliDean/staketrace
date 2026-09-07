@@ -231,6 +231,94 @@ pub fn print_simulation_results(report: &crate::simulate::SimulationReport) {
     }
 }
 
+/// Renders the full comfy-table results and summary status for EIP-7002 validator exits.
+pub fn print_exit_results(receipt: &crate::exit::ExitReceipt) {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS);
+
+    table.set_header(vec![
+        Cell::new("#").fg(Color::Cyan),
+        Cell::new("Validator").fg(Color::Cyan),
+        Cell::new("Type / Amount").fg(Color::Cyan),
+        Cell::new("EL Tx").fg(Color::Cyan),
+        Cell::new("Beacon Slot").fg(Color::Cyan),
+        Cell::new("Status").fg(Color::Cyan),
+    ]);
+
+    for (i, exit) in receipt.exits.iter().enumerate() {
+        let (status_cell, status_color) = match exit.status {
+            ConsolidationStatus::Accepted => ("ACCEPTED", Color::Green),
+            ConsolidationStatus::Queued => ("QUEUED", Color::Yellow),
+            ConsolidationStatus::NotAccepted => ("NOT_ACCEPTED", Color::Red),
+            ConsolidationStatus::Indeterminate => ("INDETERMINATE", Color::Magenta),
+        };
+
+        let val_text = format!(
+            "{} ({})",
+            exit.validator_index
+                .map(|idx| format!("#{}", idx))
+                .unwrap_or_else(|| "unreg".to_string()),
+            &exit.pubkey[..exit.pubkey.len().min(10)]
+        );
+
+        let type_text = if exit.is_full_exit {
+            "Full Exit".to_string()
+        } else {
+            format!("{:.2} ETH", exit.amount_gwei as f64 / 1e9)
+        };
+
+        let tx_text = exit
+            .el_tx_hash
+            .as_deref()
+            .map(|h| format!("{}...", &h[..h.len().min(10)]))
+            .unwrap_or_else(|| "N/A".to_string());
+
+        let slot_text = exit
+            .beacon_slot
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "Pending".to_string());
+
+        table.add_row(Row::from(vec![
+            Cell::new(i + 1),
+            Cell::new(val_text),
+            Cell::new(type_text),
+            Cell::new(tx_text),
+            Cell::new(slot_text),
+            Cell::new(status_cell).fg(status_color),
+        ]));
+    }
+
+    println!("\n{}", table);
+
+    println!("\n{}", "--- Exit Summary ---".bold());
+    println!(
+        "Total Exits: {} | Accepted: {} | Queued: {} | Not Accepted: {} | Indeterminate: {}",
+        receipt.summary.total_exits,
+        receipt.summary.accepted.to_string().green(),
+        receipt.summary.queued.to_string().yellow(),
+        receipt.summary.not_accepted.to_string().red(),
+        receipt.summary.indeterminate.to_string().magenta(),
+    );
+
+    if receipt.summary.is_all_accepted() {
+        println!(
+            "\n{}",
+            "✅ ALL VALIDATOR EXITS PROVEN ACCEPTED & FINALIZED."
+                .bold()
+                .green()
+        );
+    } else {
+        println!(
+            "\n{}",
+            "⚠️  ATTENTION: Some exits are still pending or not accepted. Do NOT shut down validator instances yet."
+                .bold()
+                .yellow()
+        );
+    }
+}
+
 /// Prints the requested output format payload to standard output.
 pub fn print_requested_format(format: OutputFormat, markdown: &str, json_str: &str, csv_str: &str) {
     match format {
