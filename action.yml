@@ -1,0 +1,103 @@
+name: "Staketrace"
+description: "Simulate, verify, and trace Ethereum validator consolidations (EIP-7251) and exits (EIP-7002) in CI/CD."
+author: "intelliDean <o.michaeldean@gmail.com>"
+
+branding:
+  icon: "check-circle"
+  color: "blue"
+
+inputs:
+  command:
+    description: "Staketrace subcommand to run (verify, simulate, exit)"
+    required: false
+    default: "verify"
+  manifest:
+    description: "Path to validator consolidation or exit manifest file"
+    required: true
+  el-tx:
+    description: "Execution Layer transaction hash(es) (required for verify and exit)"
+    required: false
+    default: ""
+  el-rpc:
+    description: "Ethereum Execution Layer JSON-RPC URL"
+    required: false
+    default: "http://127.0.0.1:8545"
+  cl-beacon-api:
+    description: "Ethereum Consensus Layer Beacon API URL"
+    required: false
+    default: "http://127.0.0.1:5052"
+  st-vault-dashboard:
+    description: "Optional Lido stVault Dashboard / AccessControl contract address"
+    required: false
+    default: ""
+  output-dir:
+    description: "Directory to save receipts and evidence"
+    required: false
+    default: "./staketrace_output"
+  watch:
+    description: "Enable live watch mode until finality or timeout"
+    required: false
+    default: "false"
+  poll-interval:
+    description: "Polling interval in seconds when in watch mode"
+    required: false
+    default: "12"
+  watch-timeout:
+    description: "Maximum watch duration in seconds before timing out"
+    required: false
+    default: "1800"
+  webhook-url:
+    description: "Optional webhook URL to dispatch JSON payload upon completion"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2
+
+    - name: Build Staketrace
+      shell: bash
+      run: |
+        cargo build --release --manifest-path ${{ github.action_path }}/Cargo.toml
+
+    - name: Execute Staketrace
+      shell: bash
+      run: |
+        BIN="${{ github.action_path }}/target/release/staketrace"
+        CMD="${{ inputs.command }}"
+        
+        ARGS=()
+        ARGS+=("$CMD")
+        ARGS+=("--manifest" "${{ inputs.manifest }}")
+        ARGS+=("--cl-beacon-api" "${{ inputs.cl-beacon-api }}")
+        ARGS+=("--output-dir" "${{ inputs.output-dir }}")
+        
+        if [ -n "${{ inputs.el-rpc }}" ]; then
+          ARGS+=("--el-rpc" "${{ inputs.el-rpc }}")
+        fi
+
+        if [ -n "${{ inputs.el-tx }}" ]; then
+          ARGS+=("--el-tx" "${{ inputs.el-tx }}")
+        fi
+
+        if [ -n "${{ inputs.st-vault-dashboard }}" ]; then
+          ARGS+=("--st-vault-dashboard" "${{ inputs.st-vault-dashboard }}")
+        fi
+
+        if [ "${{ inputs.watch }}" = "true" ]; then
+          ARGS+=("--watch")
+          ARGS+=("--poll-interval" "${{ inputs.poll-interval }}")
+          ARGS+=("--watch-timeout" "${{ inputs.watch-timeout }}")
+        fi
+
+        if [ -n "${{ inputs.webhook-url }}" ]; then
+          ARGS+=("--webhook-url" "${{ inputs.webhook-url }}")
+        fi
+
+        echo "Running: $BIN ${ARGS[@]}"
+        "$BIN" "${ARGS[@]}"

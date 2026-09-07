@@ -76,17 +76,21 @@ Every validator pair is deterministically classified into one of four statuses:
 cargo install staketrace
 ```
 
-### From Source
+### GitHub Action (CI/CD)
 
-```bash
-# Requires Rust 1.85+
-git clone https://github.com/intelliDean/staketrace.git
-cd staketrace
+Integrate `staketrace` into your staking infrastructure CI/CD workflow:
 
-# Build in release mode
-cargo build --release
-
-# The compiled binary will be at ./target/release/staketrace
+```yaml
+- name: Verify Staking Consolidations
+  uses: intelliDean/staketrace@main
+  with:
+    command: verify
+    manifest: ./manifest.json
+    el-tx: ${{ secrets.EL_TX_HASH }}
+    el-rpc: ${{ secrets.EL_RPC_URL }}
+    cl-beacon-api: ${{ secrets.CL_BEACON_API_URL }}
+    watch: true
+    webhook-url: ${{ secrets.WEBHOOK_URL }}
 ```
 
 ---
