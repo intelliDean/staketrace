@@ -50,6 +50,11 @@ impl ExitSummary {
     pub fn is_all_accepted(&self) -> bool {
         self.accepted == self.total_exits && self.total_exits > 0
     }
+
+    /// Returns `true` if any exit was rejected or returned indeterminate.
+    pub fn has_attention_items(&self) -> bool {
+        self.not_accepted > 0 || self.indeterminate > 0
+    }
 }
 
 /// Detailed cross-layer verification result for a single validator exit request.

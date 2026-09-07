@@ -103,6 +103,22 @@ pub struct VerifyArgs {
     #[arg(long, default_value_t = 30, value_name = "SECONDS")]
     pub timeout: u64,
 
+    /// Enable live watch mode, polling until all requests are finalized or timeout
+    #[arg(long)]
+    pub watch: bool,
+
+    /// Polling interval in seconds when in watch mode (default: 12 seconds)
+    #[arg(long, default_value_t = 12, value_name = "SECONDS")]
+    pub poll_interval: u64,
+
+    /// Maximum duration in seconds to watch before timing out (default: 1800s / 30m)
+    #[arg(long, default_value_t = 1800, value_name = "SECONDS")]
+    pub watch_timeout: u64,
+
+    /// Optional webhook URL (HTTP POST) to dispatch JSON notification upon completion
+    #[arg(long, env = "STAKETRACE_WEBHOOK_URL", value_name = "URL")]
+    pub webhook_url: Option<String>,
+
     /// Suppress informative logging
     #[arg(short, long)]
     pub quiet: bool,
@@ -198,6 +214,22 @@ pub struct ExitArgs {
     /// HTTP request timeout in seconds
     #[arg(long, default_value_t = 30, value_name = "SECONDS")]
     pub timeout: u64,
+
+    /// Enable live watch mode, polling until all requests are finalized or timeout
+    #[arg(long)]
+    pub watch: bool,
+
+    /// Polling interval in seconds when in watch mode (default: 12 seconds)
+    #[arg(long, default_value_t = 12, value_name = "SECONDS")]
+    pub poll_interval: u64,
+
+    /// Maximum duration in seconds to watch before timing out (default: 1800s / 30m)
+    #[arg(long, default_value_t = 1800, value_name = "SECONDS")]
+    pub watch_timeout: u64,
+
+    /// Optional webhook URL (HTTP POST) to dispatch JSON notification upon completion
+    #[arg(long, env = "STAKETRACE_WEBHOOK_URL", value_name = "URL")]
+    pub webhook_url: Option<String>,
 
     /// Suppress informative logging
     #[arg(short, long)]

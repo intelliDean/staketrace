@@ -24,6 +24,8 @@ pub mod models;
 pub mod receipt;
 pub mod simulate;
 pub mod terminal;
+pub mod watcher;
+pub mod webhook;
 
 pub use cl::BeaconClient;
 pub use cli::{CliArgs, Commands, ExitArgs, OutputFormat, SimulateArgs, VerifyArgs};
@@ -49,3 +51,5 @@ pub use simulate::{
     PairSimulationResult, SimulationEngine, SimulationReport, SimulationSummary,
     generate_simulation_markdown,
 };
+pub use watcher::Watcher;
+pub use webhook::{WebhookPayload, send_webhook};

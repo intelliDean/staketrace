@@ -3,12 +3,13 @@ use colored::*;
 use staketrace::cli::{CliArgs, Commands, ExitArgs, SimulateArgs, VerifyArgs};
 use staketrace::terminal;
 use staketrace::{
-    AppError, BeaconClient, ElClient, ExitEngine, SimulationEngine, VerificationEngine,
+    AppError, BeaconClient, ElClient, ExitEngine, SimulationEngine, VerificationEngine, Watcher,
     generate_and_save_receipts, generate_exit_csv, generate_exit_markdown,
     generate_simulation_markdown, parse_exit_manifest_file, parse_manifest_file,
 };
 use std::fs;
 use std::process::ExitCode;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -61,19 +62,38 @@ async fn run_exit(args: ExitArgs) -> Result<bool, AppError> {
             "📡 Connecting to Consensus Beacon API: {}",
             args.cl_beacon_api
         );
-        println!("🔍 Running EIP-7002 cross-layer verification...");
+        if args.watch {
+            println!(
+                "⏱️  Live Watch Mode enabled (Poll interval: {}s, Timeout: {}s)",
+                args.poll_interval, args.watch_timeout
+            );
+        } else {
+            println!("🔍 Running EIP-7002 cross-layer verification...");
+        }
     }
 
     // Step 2: Initialize RPC Clients
-    let timeout = std::time::Duration::from_secs(args.timeout);
+    let timeout = Duration::from_secs(args.timeout);
     let el_client = ElClient::with_timeout(&args.el_rpc, timeout);
     let beacon_client = BeaconClient::with_timeout(&args.cl_beacon_api, timeout);
 
-    // Step 3: Execute Exit Verification
+    // Step 3: Execute Exit Verification (Single-pass or Live Watch)
     let normalized_txs = args.normalized_el_txs();
-    let receipt =
-        ExitEngine::run_verification(&requests, &normalized_txs, &el_client, &beacon_client)
-            .await?;
+    let receipt = if args.watch {
+        Watcher::watch_exits(
+            &requests,
+            &normalized_txs,
+            &el_client,
+            &beacon_client,
+            Duration::from_secs(args.poll_interval),
+            Duration::from_secs(args.watch_timeout),
+            args.webhook_url.as_deref(),
+            args.quiet,
+        )
+        .await?
+    } else {
+        ExitEngine::run_verification(&requests, &normalized_txs, &el_client, &beacon_client).await?
+    };
 
     // Step 4: Save Exit Artifacts
     fs::create_dir_all(&args.output_dir)?;
@@ -180,20 +200,35 @@ async fn run_verification(args: VerifyArgs) -> Result<bool, AppError> {
     }
 
     // Step 2: Initialize RPC Clients
-    let timeout = std::time::Duration::from_secs(args.timeout);
+    let timeout = Duration::from_secs(args.timeout);
     let el_client = ElClient::with_timeout(&args.el_rpc, timeout);
     let beacon_client = BeaconClient::with_timeout(&args.cl_beacon_api, timeout);
 
-    // Step 3: Execute Cross-Layer Verification
+    // Step 3: Execute Cross-Layer Verification (Single-pass or Live Watch)
     let normalized_txs = args.normalized_el_txs();
-    let receipt = VerificationEngine::run_verification(
-        &pairs,
-        &normalized_txs,
-        &el_client,
-        &beacon_client,
-        args.st_vault_dashboard.as_deref(),
-    )
-    .await?;
+    let receipt = if args.watch {
+        Watcher::watch_consolidations(
+            &pairs,
+            &normalized_txs,
+            &el_client,
+            &beacon_client,
+            args.st_vault_dashboard.as_deref(),
+            Duration::from_secs(args.poll_interval),
+            Duration::from_secs(args.watch_timeout),
+            args.webhook_url.as_deref(),
+            args.quiet,
+        )
+        .await?
+    } else {
+        VerificationEngine::run_verification(
+            &pairs,
+            &normalized_txs,
+            &el_client,
+            &beacon_client,
+            args.st_vault_dashboard.as_deref(),
+        )
+        .await?
+    };
 
     // Step 4: Generate and Save Artifacts (Markdown, JSON, CSV, Evidence)
     let artifacts = generate_and_save_receipts(&args.output_dir, &receipt)?;

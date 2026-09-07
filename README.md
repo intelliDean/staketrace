@@ -176,19 +176,24 @@ staketrace verify --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-beacon
 | `--cl-beacon-api <URL>` | `CL_BEACON_API_URL` | `http://127.0.0.1:5052` | Consensus Layer Beacon API endpoint |
 | `--st-vault-dashboard <ADDR>` | `ST_VAULT_DASHBOARD` | - | Optional Lido stVault Dashboard / ACL contract address |
 | `-o, --output-dir <DIR>` | - | `./staketrace_output` | Directory to write receipts and evidence |
+| `--watch` | - | `false` | Enable live watch mode, polling until all requests are finalized or timeout |
+| `--poll-interval <SECONDS>` | - | `12` | Polling interval in seconds when in watch mode (matching slot time) |
+| `--watch-timeout <SECONDS>` | - | `1800` | Maximum watch duration before timing out (default: 30 minutes) |
+| `--webhook-url <URL>` | `STAKETRACE_WEBHOOK_URL` | - | Optional webhook URL (HTTP POST) to dispatch JSON notification upon completion |
 | `--format <FORMAT>` | - | `all` | Output format to print to stdout (`all`, `markdown`, `json`, `csv`) |
 | `--timeout <SECONDS>` | - | `30` | HTTP request timeout for RPC and Beacon API queries |
 | `--generate-completions <SHELL>` | - | - | Generate autocompletions (`bash`, `zsh`, `fish`, `powershell`, `elvish`) |
 | `-q, --quiet` | - | `false` | Suppress interactive banners and informative logs |
 
-#### Example:
+#### Example (Live Watch Mode with Webhook):
 ```bash
 staketrace verify \
   --manifest ./manifest.json \
   --el-tx 0x4a2a33f81e69b07ef94dd6d9dfd7ab6c7e112d7c07dd5aa9e8a83d3e8e2e92c4 \
   --el-rpc https://rpc.hoodi.ethpandaops.io \
   --cl-beacon-api https://bn.hoodi.ethpandaops.io \
-  --st-vault-dashboard 0x1234567890123456789012345678901234567890 \
+  --watch \
+  --webhook-url https://api.myvault.internal/webhooks/staketrace \
   --output-dir ./verification_receipts
 ```
 
@@ -210,6 +215,10 @@ staketrace exit --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-beacon-a
 | `--el-rpc <URL>` | `EL_RPC_URL` | `http://127.0.0.1:8545` | Execution Layer JSON-RPC endpoint |
 | `--cl-beacon-api <URL>` | `CL_BEACON_API_URL` | `http://127.0.0.1:5052` | Consensus Layer Beacon API endpoint |
 | `-o, --output-dir <DIR>` | - | `./staketrace_exit_output` | Directory to write exit receipts and evidence |
+| `--watch` | - | `false` | Enable live watch mode, polling until all exits are finalized or timeout |
+| `--poll-interval <SECONDS>` | - | `12` | Polling interval in seconds when in watch mode (matching slot time) |
+| `--watch-timeout <SECONDS>` | - | `1800` | Maximum watch duration before timing out (default: 30 minutes) |
+| `--webhook-url <URL>` | `STAKETRACE_WEBHOOK_URL` | - | Optional webhook URL (HTTP POST) to dispatch JSON notification upon completion |
 | `--format <FORMAT>` | - | `all` | Output format to print to stdout (`all`, `markdown`, `json`, `csv`) |
 | `--timeout <SECONDS>` | - | `30` | HTTP request timeout for RPC and Beacon API queries |
 | `-q, --quiet` | - | `false` | Suppress interactive banners and informative logs |
@@ -221,6 +230,7 @@ staketrace exit \
   --el-tx 0x8f3c7e112d7c07dd5aa9e8a83d3e8e2e92c48858e37ab7b3117562ad846ef329 \
   --el-rpc https://rpc.hoodi.ethpandaops.io \
   --cl-beacon-api https://bn.hoodi.ethpandaops.io \
+  --watch \
   --output-dir ./exit_receipts
 ```
 
