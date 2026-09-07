@@ -1,24 +1,16 @@
+pub use crate::constants::CONSOLIDATION_PREDEPLOY_ADDRESS;
+use crate::constants::{
+    BLS_PUBKEY_BYTE_LEN as PUBKEY_BYTE_LEN, CONSOLIDATION_CALLDATA_LEN as PREDEPLOY_CALLDATA_LEN,
+};
 use crate::models::ConsolidationPair;
-
-/// EIP-7251 Consolidation Request Predeploy contract address on Ethereum.
-pub const CONSOLIDATION_PREDEPLOY_ADDRESS: &str = "0x0000bbddc7ce488642fb579f8b00f3a590007251";
-
-/// Length of a BLS12-381 public key in bytes.
-pub const PUBKEY_BYTE_LEN: usize = 48;
-
-/// Expected calldata length for a direct consolidation request (source + target).
-pub const PREDEPLOY_CALLDATA_LEN: usize = PUBKEY_BYTE_LEN * 2; // 96 bytes
+use crate::utils::strip_0x;
 
 pub struct ConsolidationPredeploy;
 
 impl ConsolidationPredeploy {
     /// Checks if an address matches the EIP-7251 consolidation predeploy address (zero-allocation).
     pub fn is_predeploy_address(address: &str) -> bool {
-        let clean = address
-            .trim()
-            .trim_start_matches("0x")
-            .trim_start_matches("0X");
-
+        let clean = strip_0x(address);
         clean.eq_ignore_ascii_case("0000bbddc7ce488642fb579f8b00f3a590007251")
     }
 

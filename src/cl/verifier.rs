@@ -1,18 +1,18 @@
+//! Consensus Layer state delta verifier for EIP-7251 consolidation requests.
+
 use super::client::BeaconClient;
+pub use super::credentials::derive_address_from_credentials;
+use super::scanner::fetch_beacon_blocks_for_timestamps;
+use super::state_delta::resolve_state_deltas_for_blocks;
 use super::types::{
     BeaconBlockResponse, ClVerificationEvidence, ClVerifiedPairEvidence, ConsolidationRequestItem,
     PendingConsolidationItem,
 };
+use crate::constants::{MAX_SCAN_SLOTS, SLOTS_PER_EPOCH};
 use crate::error::Result;
 use crate::models::ConsolidationPair;
+use crate::utils::time::is_epoch_finalized;
 use std::collections::{HashMap, HashSet};
-
-/// Default Ethereum slot duration in seconds (post-Merge / PoS).
-pub const SECONDS_PER_SLOT: u64 = 12;
-/// Slots per epoch in Ethereum proof-of-stake.
-pub const SLOTS_PER_EPOCH: u64 = 32;
-/// Maximum number of subsequent Consensus Layer slots to scan for an execution request.
-pub const MAX_SCAN_SLOTS: u64 = 64;
 
 /// Verifies validator consolidation state across the Consensus Layer (Beacon API) using exact block-level state delta proofs.
 pub async fn verify_consensus_layer(
@@ -32,30 +32,30 @@ pub async fn verify_consensus_layer(
         });
     }
 
-    // Step 1: Collect unique public keys in O(N) using pre-allocated HashSet
+    // Step 1: Collect unique public keys
     let all_pubkeys = collect_unique_pubkeys(pairs);
 
-    // Step 2: Fetch validator details (indices + withdrawal credentials) in batch
+    // Step 2: Fetch validator details in batch
     let (validator_indices, validator_credentials) = client
         .get_validators_by_pubkeys(&all_pubkeys)
         .await
         .unwrap_or_else(|_| (HashMap::new(), HashMap::new()));
 
-    // Step 3: Fetch Genesis to calculate slot from timestamp (network-agnostic)
+    // Step 3: Fetch Genesis timestamp
     let genesis_time = client
         .get_genesis()
         .await
         .ok()
         .and_then(|g| g.data.genesis_time.parse::<u64>().ok());
 
-    // Step 4: Fetch Finality Checkpoints to verify block finality
+    // Step 4: Fetch Finality Checkpoints
     let finalized_epoch = client
         .get_finality_checkpoints("head")
         .await
         .ok()
         .and_then(|fc| fc.data.finalized.epoch.parse::<u64>().ok());
 
-    // Step 5: Scan and cache beacon blocks for EL timestamps across subsequent slots
+    // Step 5: Scan Beacon blocks for subsequent slots
     let beacon_blocks = if let Some(genesis) = genesis_time {
         fetch_beacon_blocks_for_timestamps(
             client,
@@ -68,38 +68,10 @@ pub async fn verify_consensus_layer(
         HashMap::new()
     };
 
-    // Step 6: Query parent and post state pending_consolidations for each processing block using correct state roots
-    let mut parent_states_pending: HashMap<String, Vec<PendingConsolidationItem>> = HashMap::new();
-    let mut post_states_pending: HashMap<String, Vec<PendingConsolidationItem>> = HashMap::new();
-
-    for block in beacon_blocks.values() {
-        let parent_block_root = &block.data.message.parent_root;
-        let post_state_root = &block.data.message.state_root;
-        let post_slot = &block.data.message.slot;
-
-        // Resolve parent state root by fetching parent block first
-        let parent_state_root = resolve_parent_state_root(client, parent_block_root).await;
-
-        // Query parent state pending consolidations
-        if !parent_states_pending.contains_key(&parent_state_root) {
-            if let Ok(pending) = client.get_pending_consolidations(&parent_state_root).await {
-                parent_states_pending.insert(parent_state_root.clone(), pending);
-            } else if parent_state_root != *parent_block_root
-                && let Ok(pending) = client.get_pending_consolidations(parent_block_root).await
-            {
-                parent_states_pending.insert(parent_block_root.clone(), pending);
-            }
-        }
-
-        // Query post state pending consolidations (by post state root or slot)
-        if !post_states_pending.contains_key(post_state_root) {
-            if let Ok(pending) = client.get_pending_consolidations(post_state_root).await {
-                post_states_pending.insert(post_state_root.clone(), pending);
-            } else if let Ok(pending) = client.get_pending_consolidations(post_slot).await {
-                post_states_pending.insert(post_slot.clone(), pending);
-            }
-        }
-    }
+    // Step 6: Query parent and post state pending consolidations
+    let deltas = resolve_state_deltas_for_blocks(client, &beacon_blocks).await;
+    let parent_states_pending = deltas.parent_states_pending;
+    let post_states_pending = deltas.post_states_pending;
 
     // Step 7: Evaluate exact delta evidence for each pair
     let mut pair_evidence = HashMap::with_capacity(pairs.len());
@@ -115,7 +87,6 @@ pub async fn verify_consensus_layer(
             .as_deref()
             .and_then(derive_address_from_credentials);
 
-        // Scan blocks for exact execution request
         let (matched_block, beacon_slot, beacon_request_found) = find_matching_beacon_block(
             &beacon_blocks,
             pair,
@@ -134,7 +105,6 @@ pub async fn verify_consensus_layer(
             let post_state_root = &block.data.message.state_root;
             let post_slot = &block.data.message.slot;
 
-            // Find parent pending consolidations list
             let parent_pending = parent_states_pending.get(parent_block_root).or_else(|| {
                 parent_states_pending
                     .iter()
@@ -142,7 +112,6 @@ pub async fn verify_consensus_layer(
                     .map(|(_, v)| v)
             });
 
-            // Find post pending consolidations list
             let post_pending = post_states_pending
                 .get(post_state_root)
                 .or_else(|| post_states_pending.get(post_slot));
@@ -162,8 +131,7 @@ pub async fn verify_consensus_layer(
 
             if let (Some(slot), Some(finalized_ep)) = (beacon_slot, finalized_epoch) {
                 let block_epoch = slot / SLOTS_PER_EPOCH;
-                // Strict finality check: block is finalized when its epoch is strictly less than finalized checkpoint
-                block_finalized = Some(block_epoch < finalized_ep);
+                block_finalized = Some(is_epoch_finalized(block_epoch, finalized_ep));
             }
         } else if beacon_blocks.is_empty() {
             cl_error = Some("BEACON_BLOCK_NOT_FOUND".to_string());
@@ -199,19 +167,6 @@ pub async fn verify_consensus_layer(
     })
 }
 
-// -----------------------------------------------------------------------------
-// Helper Functions
-// -----------------------------------------------------------------------------
-
-/// Resolves the parent block's state root from its block root, or returns the block root as fallback.
-async fn resolve_parent_state_root(client: &BeaconClient, parent_block_root: &str) -> String {
-    if let Ok(Some(parent_block)) = client.get_beacon_block(parent_block_root).await {
-        parent_block.data.message.state_root
-    } else {
-        parent_block_root.to_string()
-    }
-}
-
 /// Extracts unique 0x-prefixed public keys from consolidation pairs in O(N) time.
 fn collect_unique_pubkeys(pairs: &[ConsolidationPair]) -> Vec<String> {
     let mut set = HashSet::with_capacity(pairs.len() * 2);
@@ -220,52 +175,6 @@ fn collect_unique_pubkeys(pairs: &[ConsolidationPair]) -> Vec<String> {
         set.insert(pair.target_pubkey.clone());
     }
     set.into_iter().collect()
-}
-
-/// Converts an Execution Layer block timestamp to an estimated Consensus Layer slot.
-pub fn timestamp_to_slot(timestamp: u64, genesis_time: u64) -> Option<u64> {
-    if timestamp >= genesis_time {
-        Some((timestamp - genesis_time) / SECONDS_PER_SLOT)
-    } else {
-        None
-    }
-}
-
-/// Scans subsequent Beacon slots starting from estimated slots up to `max_scan_slots`.
-async fn fetch_beacon_blocks_for_timestamps(
-    client: &BeaconClient,
-    timestamps: impl Iterator<Item = u64>,
-    genesis_time: u64,
-    max_scan_slots: u64,
-) -> HashMap<u64, BeaconBlockResponse> {
-    let mut blocks = HashMap::new();
-    let starting_slots: HashSet<u64> = timestamps
-        .filter_map(|ts| timestamp_to_slot(ts, genesis_time))
-        .collect();
-
-    for start_slot in starting_slots {
-        let mut consecutive_misses = 0;
-        for offset in 0..max_scan_slots {
-            let slot = start_slot + offset;
-            match client.get_beacon_block(&slot.to_string()).await {
-                Ok(Some(block_resp)) => {
-                    consecutive_misses = 0;
-                    blocks.insert(slot, block_resp);
-                }
-                Ok(None) => {
-                    consecutive_misses += 1;
-                    // If we see 4 consecutive misses beyond the start slot, we have likely reached head
-                    if offset > 4 && consecutive_misses >= 4 {
-                        break;
-                    }
-                }
-                Err(_) => {
-                    break;
-                }
-            }
-        }
-    }
-    blocks
 }
 
 /// Checks if a validator pair is present in a `pending_consolidations` list.
@@ -318,7 +227,7 @@ fn find_matching_beacon_block<'a>(
     (first_block, first_slot, false)
 }
 
-/// Checks if an execution request matches a given consolidation pair (by pubkey, index, and optional source_address).
+/// Checks if an execution request matches a given consolidation pair.
 fn matches_consolidation_request(
     req: &ConsolidationRequestItem,
     pair: &ConsolidationPair,
@@ -348,34 +257,12 @@ fn matches_consolidation_request(
 
     let match_address = match (&req.source_address, derived_source_address) {
         (Some(req_addr), Some(derived_addr)) => {
-            req_addr.trim().to_lowercase() == derived_addr.trim().to_lowercase()
+            req_addr.to_lowercase() == derived_addr.to_lowercase()
         }
-        (Some(_), None) => false,
-        (None, _) => true,
+        _ => true,
     };
 
     (match_pubkeys || match_indices) && match_address
-}
-
-/// Derives an Ethereum execution address from 0x01 (or 0x02) withdrawal credentials.
-/// 32 bytes total: byte 0 is type (0x01), bytes 1..12 are 0x00, bytes 12..32 are the 20-byte address.
-pub fn derive_address_from_credentials(credentials: &str) -> Option<String> {
-    let clean = credentials
-        .trim()
-        .trim_start_matches("0x")
-        .trim_start_matches("0X");
-    if clean.len() != 64 {
-        return None;
-    }
-
-    // Check if prefix is 01 (ETH1 withdrawal address)
-    if !clean.starts_with("01") && !clean.starts_with("02") {
-        return None;
-    }
-
-    // Last 40 hex chars (20 bytes) is the execution address
-    let address_hex = &clean[24..64];
-    Some(format!("0x{}", address_hex.to_lowercase()))
 }
 
 #[cfg(test)]
@@ -384,21 +271,36 @@ mod tests {
 
     #[test]
     fn test_derive_address_from_credentials() {
-        let creds = "0x0100000000000000000000001234567890abcdef1234567890abcdef12345678";
-        let addr = derive_address_from_credentials(creds).expect("should derive address");
-        assert_eq!(addr, "0x1234567890abcdef1234567890abcdef12345678");
+        let creds_01 = "0x01000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8";
+        assert_eq!(
+            derive_address_from_credentials(creds_01),
+            Some("0x70997970c51812dc3a010c7d01b50e0d17dc79c8".to_string())
+        );
+
+        let creds_02 = "0x02000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8";
+        assert_eq!(
+            derive_address_from_credentials(creds_02),
+            Some("0x70997970c51812dc3a010c7d01b50e0d17dc79c8".to_string())
+        );
     }
 
     #[test]
     fn test_non_eth1_credentials() {
-        let bls_creds = "0x0000000000000000000000001234567890abcdef1234567890abcdef12345678";
-        assert!(derive_address_from_credentials(bls_creds).is_none());
+        let bls_creds = "0x00a1b2c3d4e5f60718293a4b5c6d7e8f00112233445566778899aabbccddeeff";
+        assert_eq!(derive_address_from_credentials(bls_creds), None);
     }
 
     #[test]
     fn test_timestamp_to_slot() {
-        let genesis = 1606824023;
-        let slot = timestamp_to_slot(genesis + 24, genesis);
-        assert_eq!(slot, Some(2));
+        let genesis_time = 1606824023;
+        assert_eq!(crate::utils::timestamp_to_slot(1606824023, genesis_time), 0);
+        assert_eq!(
+            crate::utils::timestamp_to_slot(1606824023 + 12, genesis_time),
+            1
+        );
+        assert_eq!(
+            crate::utils::timestamp_to_slot(1606824023 + 120, genesis_time),
+            10
+        );
     }
 }

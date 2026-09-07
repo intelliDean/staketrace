@@ -1,138 +1,11 @@
-use crate::cl::{
-    BeaconClient, ClVerificationEvidence, ClVerifiedPairEvidence, verify_consensus_layer,
-};
-use crate::el::{ElClient, ElVerificationEvidence, ElVerifiedTx, verify_execution_layer};
-use crate::error::Result;
-use crate::lido::LidoRoleInspector;
-use crate::models::{
-    ConsolidationPair, ConsolidationStatus, PairVerificationResult, VerificationReceipt,
-    VerificationSummary,
-};
-use chrono::Utc;
-use std::collections::HashMap;
+//! Deterministic rules and state machine for evaluating consolidation pair statuses.
 
-pub struct VerificationEngine;
-
-impl VerificationEngine {
-    /// Executes full cross-layer verification across Execution and Consensus layers.
-    pub async fn run_verification(
-        manifest_pairs: &[ConsolidationPair],
-        tx_hashes: &[String],
-        el_client: &ElClient,
-        beacon_client: &BeaconClient,
-        st_vault_dashboard: Option<&str>,
-    ) -> Result<VerificationReceipt> {
-        // Step 1: Execute Execution Layer verification
-        let el_evidence = verify_execution_layer(el_client, tx_hashes, manifest_pairs).await?;
-        let el_block_timestamps = extract_el_block_timestamps(&el_evidence);
-
-        // Step 2: Execute Consensus Layer state delta verification
-        let cl_evidence =
-            verify_consensus_layer(beacon_client, manifest_pairs, &el_block_timestamps).await?;
-
-        // Step 3: Extract withdrawal credentials for every source validator
-        let mut source_credentials = HashMap::with_capacity(manifest_pairs.len());
-        for pair in manifest_pairs {
-            let src_norm = pair.source_pubkey.to_lowercase();
-            let creds = cl_evidence
-                .validator_withdrawal_credentials
-                .get(&src_norm)
-                .cloned();
-            source_credentials.insert(src_norm, creds);
-        }
-
-        let receipts: Vec<_> = el_evidence
-            .verified_txs
-            .values()
-            .map(|v| v.receipt.clone())
-            .collect();
-
-        let tx_inputs: Vec<String> = el_evidence
-            .verified_txs
-            .values()
-            .filter_map(|v| v.details.as_ref().map(|d| d.input.clone()))
-            .collect();
-
-        // Step 4: Audit Lido fee exemption role for derived accounts
-        let fee_exemption = LidoRoleInspector::check_fee_exempt_roles(
-            el_client,
-            st_vault_dashboard,
-            &source_credentials,
-            &receipts,
-            &tx_inputs,
-        )
-        .await?;
-
-        // Step 5: Deterministically evaluate each consolidation pair
-        let mut results = Vec::with_capacity(manifest_pairs.len());
-        let mut summary = VerificationSummary {
-            total_pairs: manifest_pairs.len(),
-            ..Default::default()
-        };
-
-        for pair in manifest_pairs {
-            let pair_result = build_pair_verification_result(pair, &el_evidence, &cl_evidence);
-            summary.record_status(pair_result.status);
-            results.push(pair_result);
-        }
-
-        // Step 6: Assemble raw evidence artifacts for archiving
-        let mut raw_beacon_blocks = HashMap::new();
-        for (slot, block) in &cl_evidence.beacon_blocks {
-            if let Ok(val) = serde_json::to_value(block) {
-                raw_beacon_blocks.insert(slot.to_string(), val);
-            }
-        }
-
-        let mut raw_parent_states = HashMap::new();
-        for (id, list) in &cl_evidence.parent_states_pending {
-            if let Ok(val) = serde_json::to_value(list) {
-                raw_parent_states.insert(id.clone(), val);
-            }
-        }
-
-        let mut raw_post_states = HashMap::new();
-        for (id, list) in &cl_evidence.post_states_pending {
-            if let Ok(val) = serde_json::to_value(list) {
-                raw_post_states.insert(id.clone(), val);
-            }
-        }
-
-        let raw_evidence = crate::models::RawEvidenceArtifacts {
-            el_receipts: el_evidence.raw_receipts.clone(),
-            beacon_blocks: raw_beacon_blocks,
-            parent_states_pending: raw_parent_states,
-            post_states_pending: raw_post_states,
-        };
-
-        Ok(VerificationReceipt {
-            tool_version: env!("CARGO_PKG_VERSION").to_string(),
-            timestamp: Utc::now(),
-            el_rpc_url: el_client.rpc_url().to_string(),
-            cl_beacon_url: beacon_client.base_url().to_string(),
-            summary,
-            fee_exemption,
-            pairs: results,
-            raw_evidence: Some(raw_evidence),
-        })
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Helper Functions & State Machine Logic
-// -----------------------------------------------------------------------------
-
-/// Extracts execution block timestamps for correlating with consensus slots.
-fn extract_el_block_timestamps(el_evidence: &ElVerificationEvidence) -> HashMap<u64, u64> {
-    let mut map = HashMap::with_capacity(el_evidence.verified_txs.len());
-    for tx in el_evidence.verified_txs.values() {
-        map.insert(tx.block_number, tx.block_timestamp);
-    }
-    map
-}
+use crate::cl::{ClVerificationEvidence, ClVerifiedPairEvidence};
+use crate::el::{ElVerificationEvidence, ElVerifiedTx};
+use crate::models::{ConsolidationPair, ConsolidationStatus, PairVerificationResult};
 
 /// Builds a `PairVerificationResult` by cross-referencing execution and consensus state delta evidence.
-fn build_pair_verification_result(
+pub fn build_pair_verification_result(
     pair: &ConsolidationPair,
     el_evidence: &ElVerificationEvidence,
     cl_evidence: &ClVerificationEvidence,
@@ -178,45 +51,62 @@ fn build_pair_verification_result(
     }
 }
 
-/// Pure deterministic state evaluation rules for a single consolidation pair.
+/// Evaluates status from combined EL and CL evidence.
 pub fn evaluate_pair_status(
     el_tx: Option<&ElVerifiedTx>,
-    cl_pair: Option<&ClVerifiedPairEvidence>,
+    cl_evidence: Option<&ClVerifiedPairEvidence>,
 ) -> (ConsolidationStatus, String, Option<String>) {
-    let Some(tx) = el_tx else {
-        return (
-            ConsolidationStatus::Indeterminate,
-            "No corresponding execution layer transaction could be matched with this consolidation pair.".to_string(),
-            Some("MISSING_EL_TRANSACTION".to_string()),
-        );
+    // 1. EL transaction verification
+    let tx = match el_tx {
+        Some(t) => t,
+        None => {
+            return (
+                ConsolidationStatus::Indeterminate,
+                "No Execution Layer transaction hash provided or matching predeploy calldata found."
+                    .to_string(),
+                Some("MISSING_EL_TRANSACTION".to_string()),
+            );
+        }
     };
 
     if !tx.status_success {
         return (
             ConsolidationStatus::NotAccepted,
             format!(
-                "Execution layer transaction '{}' reverted on-chain (status = 0).",
+                "Execution Layer transaction '{}' reverted on-chain (status = 0x0).",
                 tx.tx_hash
             ),
             None,
         );
     }
 
-    let Some(cl) = cl_pair else {
+    if !tx.predeploy_interaction_detected {
         return (
-            ConsolidationStatus::Indeterminate,
+            ConsolidationStatus::NotAccepted,
             format!(
-                "Consensus layer evidence unavailable for pair with EL tx '{}'.",
+                "Execution Layer transaction '{}' did not call the consolidation predeploy.",
                 tx.tx_hash
             ),
-            Some("MISSING_CL_EVIDENCE".to_string()),
+            None,
         );
+    }
+
+    // 2. Consensus Layer state verification
+    let cl = match cl_evidence {
+        Some(c) => c,
+        None => {
+            return (
+                ConsolidationStatus::Indeterminate,
+                "Consensus Layer verification data is missing.".to_string(),
+                Some("MISSING_CL_EVIDENCE".to_string()),
+            );
+        }
     };
 
     if let Some(ref err) = cl.cl_error {
         return (
             ConsolidationStatus::Indeterminate,
-            format!("Consensus layer verification could not complete: {}.", err),
+            format!("Consensus layer verification could not complete: {err}."),
             Some(err.clone()),
         );
     }
@@ -225,8 +115,8 @@ pub fn evaluate_pair_status(
         return (
             ConsolidationStatus::Indeterminate,
             format!(
-                "Could not resolve validator indices on Consensus Layer for EL tx '{}'.",
-                tx.tx_hash
+                "Source validator (idx: {:?}) or target validator (idx: {:?}) could not be resolved from Beacon API.",
+                cl.source_index, cl.target_index
             ),
             Some("UNRESOLVED_VALIDATOR_INDICES".to_string()),
         );

@@ -1,24 +1,14 @@
+pub use crate::constants::EXIT_PREDEPLOY_ADDRESS;
+use crate::constants::{BLS_PUBKEY_BYTE_LEN as PUBKEY_BYTE_LEN, EXIT_CALLDATA_LEN};
 use crate::exit::models::ExitRequest;
-
-/// EIP-7002 Execution Layer Triggerable Exit Predeploy contract address on Ethereum.
-pub const EXIT_PREDEPLOY_ADDRESS: &str = "0x0000bbddc7ce488642fb579f8b00f3a590007002";
-
-/// Length of a BLS12-381 public key in bytes.
-pub const PUBKEY_BYTE_LEN: usize = 48;
-
-/// Expected calldata length for an EIP-7002 exit request with explicit amount (48B pubkey + 8B amount).
-pub const EXIT_CALLDATA_LEN: usize = 56;
+use crate::utils::strip_0x;
 
 pub struct ExitPredeploy;
 
 impl ExitPredeploy {
     /// Checks if an address matches the EIP-7002 exit predeploy address.
     pub fn is_predeploy_address(address: &str) -> bool {
-        let clean = address
-            .trim()
-            .trim_start_matches("0x")
-            .trim_start_matches("0X");
-
+        let clean = strip_0x(address);
         clean.eq_ignore_ascii_case("0000bbddc7ce488642fb579f8b00f3a590007002")
     }
 

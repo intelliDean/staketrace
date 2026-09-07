@@ -14,6 +14,7 @@
 
 pub mod cl;
 pub mod cli;
+pub mod constants;
 pub mod el;
 pub mod engine;
 pub mod error;
@@ -24,6 +25,7 @@ pub mod models;
 pub mod receipt;
 pub mod simulate;
 pub mod terminal;
+pub mod utils;
 pub mod watcher;
 pub mod webhook;
 

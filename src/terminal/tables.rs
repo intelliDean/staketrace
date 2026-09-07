@@ -1,41 +1,11 @@
+//! Tabular report formatters and terminal printers.
+
 use crate::cli::OutputFormat;
 use crate::models::{ConsolidationStatus, VerificationReceipt};
 use colored::*;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Row, Table};
-
-/// Prints the ASCII banner for staketrace.
-pub fn print_banner() {
-    println!(
-        "{}",
-        "=========================================================".cyan()
-    );
-    println!(
-        "{}",
-        "          STAKETRACE - Ethereum Validator Auditor        "
-            .bold()
-            .cyan()
-    );
-    println!(
-        "{}",
-        "          EIP-7251 (MaxEB) & EIP-7002 Verification       "
-            .dimmed()
-            .cyan()
-    );
-    println!(
-        "{}",
-        "=========================================================".cyan()
-    );
-}
-
-/// Prints connection endpoints and manifest item counts.
-pub fn print_connection_info(pair_count: usize, el_rpc: &str, cl_beacon_api: &str) {
-    println!("   Found {} consolidation pairs in manifest.", pair_count);
-    println!("⚡ Connecting to Execution Layer RPC: {}", el_rpc);
-    println!("📡 Connecting to Consensus Beacon API: {}", cl_beacon_api);
-    println!("🔍 Running cross-layer verification...");
-}
 
 /// Renders the full comfy-table results and summary status in the terminal.
 pub fn print_verification_results(receipt: &VerificationReceipt) {
