@@ -1,5 +1,5 @@
+use staketrace::manifest::{parse_manifest_file, parse_manifest_str};
 use std::io::Write;
-use stvault_receipt::manifest::{parse_manifest_file, parse_manifest_str};
 use tempfile::NamedTempFile;
 
 const PUBKEY_A: &str = "0x8a9233f81e69b07ef94dd6d9dfd7ab6c7e112d7c07dd5aa9e8a83d3e8e2e92c48858e37ab7b3117562ad846ef3294ee1";

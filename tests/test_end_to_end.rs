@@ -1,6 +1,6 @@
 use serde_json::json;
-use stvault_receipt::models::ConsolidationStatus;
-use stvault_receipt::{
+use staketrace::models::ConsolidationStatus;
+use staketrace::{
     BeaconClient, ElClient, EvidenceWriter, VerificationEngine, generate_csv_receipt,
     generate_json_receipt, generate_markdown_receipt, parse_manifest_str,
 };

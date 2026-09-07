@@ -5,7 +5,7 @@ use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Row, Table};
 
-/// Prints the ASCII banner for stvault-receipt.
+/// Prints the ASCII banner for staketrace.
 pub fn print_banner() {
     println!(
         "{}",
@@ -13,8 +13,14 @@ pub fn print_banner() {
     );
     println!(
         "{}",
-        "       Lido stVault Consolidation Request Receipt        "
+        "          STAKETRACE - Ethereum Validator Auditor        "
             .bold()
+            .cyan()
+    );
+    println!(
+        "{}",
+        "          EIP-7251 (MaxEB) & EIP-7002 Verification       "
+            .dimmed()
             .cyan()
     );
     println!(

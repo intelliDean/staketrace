@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// Unified error enum for all stvault-receipt operations.
+/// Unified error enum for all staketrace operations.
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("Manifest error: {0}")]

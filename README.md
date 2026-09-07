@@ -1,14 +1,11 @@
-# Lido stVault Consolidation Request Receipt CLI (`stvault-receipt`)
+# Staketrace (`staketrace`)
 
-[![Crates.io](https://img.shields.io/crates/v/stvault-receipt.svg)](https://crates.io/crates/stvault-receipt)
+[![Crates.io](https://img.shields.io/crates/v/staketrace.svg)](https://crates.io/crates/staketrace)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
-[![CI](https://github.com/CreativesOnchain/lido-stvault/actions/workflows/ci.yml/badge.svg)](https://github.com/CreativesOnchain/lido-stvault/actions/workflows/ci.yml)
+[![CI](https://github.com/intelliDean/staketrace/actions/workflows/ci.yml/badge.svg)](https://github.com/intelliDean/staketrace/actions/workflows/ci.yml)
 
-A read-only CLI tool and Rust library that verifies the post-submission status of Lido stVault validator consolidation requests across Ethereum's **Execution Layer (EL)** and **Consensus Layer (CL)** without relying on proprietary indexers, private endpoints, or commercial APIs.
-
-> [!NOTE]
-> **Community Prototype Disclaimer:** `stvault-receipt` is an unofficial community prototype developed to demonstrate cross-layer verification of validator consolidation requests for Lido stVault deployments. It is provided for evaluation and testing purposes and is not an official Lido DAO release.
+**Staketrace** is a high-assurance CLI tool and Rust library to trace, simulate, and verify Ethereum validator consolidation requests (**EIP-7251 MaxEB**) and validator exits (**EIP-7002**) across the **Execution Layer (EL)** and **Consensus Layer (CL)** without relying on third-party indexers or commercial APIs.
 
 ---
 
@@ -19,13 +16,13 @@ Under Ethereum's **EIP-7251 (MaxEB)** consolidation mechanism (distinct from **E
 1. **The Cross-Layer Disconnect:** An EL transaction can succeed (`status == 1`) and consume gas, while the Consensus Layer may reject or drop the consolidation request during block state transition (e.g. mismatched withdrawal credentials, invalid source/target state, or validation rule violations).
 2. **Partial Batch Failures:** In multi-validator consolidation batches, some pairs may succeed while others fail consensus validation rules.
 3. **Hardware Decommissioning Danger:** If node operators assume EL transaction success equals consolidation completion, prematurely shutting down source validator keys before consensus processing will result in offline inactivity penalties.
-4. **Dangling Fee-Exemption Permissions:** The temporary `vaults.NodeOperatorFee.FeeExemptRole` in Lido contracts may remain unrevoked after batch consolidation workflows, creating accounting and governance risks.
+4. **Dangling Fee-Exemption Permissions:** Temporary fee-exemption roles in staking vault contracts may remain unrevoked after batch consolidation workflows, creating accounting and governance risks.
 
 ---
 
 ## The Solution
 
-`stvault-receipt` traces every `source -> target` validator pair from the official Lido stVault consolidation manifest across both layers using exact block-level state delta proofs:
+`staketrace` traces every `source -> target` validator pair across both layers using exact block-level state delta proofs:
 
 ```
 [Manifest & EL Tx Hashes]
@@ -41,12 +38,12 @@ Under Ethereum's **EIP-7251 (MaxEB)** consolidation mechanism (distinct from **E
         │      • Compares pending_consolidations in parent state (absent) vs post state (present)
         │      • Verifies block epoch finality checkpoints
         │
-        ├──► 3. Lido stVault / ACL Contract
+        ├──► 3. Staking / Vault Protocol Role Audit
         │      • Derives execution addresses from source validator withdrawal credentials
-        │      • Audits `vaults.NodeOperatorFee.FeeExemptRole` state across all source accounts
-        │      • Warns if elevated fee privileges remain unrevoked
+        │      • Audits fee-exemption role state across all source accounts (e.g. Lido stVault)
+        │      • Warns if elevated privileges remain unrevoked
         │
-        └──► 4. Generates Audit Receipts
+        └──► 4. Generates Comprehensive Audit Receipts
                • Markdown Summary (`receipt_summary.md`)
                • Canonical Machine-Readable JSON (`receipt.json`)
                • Pair-by-Pair CSV (`consolidations.csv`)
@@ -76,20 +73,20 @@ Every validator pair is deterministically classified into one of four statuses:
 ### From Crates.io
 
 ```bash
-cargo install stvault-receipt
+cargo install staketrace
 ```
 
 ### From Source
 
 ```bash
 # Requires Rust 1.85+
-git clone https://github.com/CreativesOnchain/lido-stvault.git
-cd lido-stvault
+git clone https://github.com/intelliDean/staketrace.git
+cd staketrace
 
 # Build in release mode
 cargo build --release
 
-# The compiled binary will be at ./target/release/stvault-receipt
+# The compiled binary will be at ./target/release/staketrace
 ```
 
 ---
@@ -97,20 +94,20 @@ cargo build --release
 ## CLI Usage
 
 ```bash
-stvault-receipt [OPTIONS] --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-beacon-api <URL>
+staketrace [OPTIONS] --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --cl-beacon-api <URL>
 ```
 
 ### Options Reference
 
 | Flag | Env Var | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `-m, --manifest <PATH>` | - | *Required* | Path to Lido stVault manifest (JSON or YAML) |
+| `-m, --manifest <PATH>` | - | *Required* | Path to validator consolidation manifest (JSON or YAML) |
 | `-t, --el-tx <TX_HASH>` | - | *Required* | EL transaction hash (comma-separated or repeated) |
 | `--el-rpc <URL>` | `EL_RPC_URL` | `http://127.0.0.1:8545` | Execution Layer JSON-RPC endpoint |
 | `--cl-beacon-api <URL>` | `CL_BEACON_API_URL` | `http://127.0.0.1:5052` | Consensus Layer Beacon API endpoint |
-| `--st-vault-dashboard <ADDR>` | `ST_VAULT_DASHBOARD` | - | Lido stVault Dashboard / ACL contract address |
+| `--st-vault-dashboard <ADDR>` | `ST_VAULT_DASHBOARD` | - | Optional Lido stVault Dashboard / ACL contract address |
 | `--timeout <SECONDS>` | - | `30` | HTTP request timeout for RPC and Beacon API queries |
-| `-o, --output-dir <DIR>` | - | `./stvault_receipt_output` | Directory to write receipts and evidence |
+| `-o, --output-dir <DIR>` | - | `./staketrace_output` | Directory to write receipts and evidence |
 | `--format <FORMAT>` | - | `all` | Output format to print to stdout (`all`, `markdown`, `json`, `csv`) |
 | `--generate-completions <SHELL>` | - | - | Generate autocompletions (`bash`, `zsh`, `fish`, `powershell`, `elvish`) |
 | `-q, --quiet` | - | `false` | Suppress interactive banners and informative logs |
@@ -118,7 +115,7 @@ stvault-receipt [OPTIONS] --manifest <PATH> --el-tx <TX_HASH> --el-rpc <URL> --c
 ### Example Run
 
 ```bash
-stvault-receipt \
+staketrace \
   --manifest ./tests/fixtures/hoodi/manifest.json \
   --el-tx 0x4a2a33f81e69b07ef94dd6d9dfd7ab6c7e112d7c07dd5aa9e8a83d3e8e2e92c4 \
   --el-rpc https://rpc.hoodi.ethpandaops.io \
@@ -132,9 +129,9 @@ stvault-receipt \
 
 ## Manifest Format Support
 
-Supports the official Lido stVault target-to-sources mapping format as well as standard lists:
+Supports target-to-sources mapping formats as well as flat lists:
 
-### Official Lido Map Format:
+### Target-to-Sources Map Format:
 ```json
 {
   "0x96b6e41b9d1bb8bb4be6fb98f6d7ab7b1a206a445e9bb5f5c1d683777d13e3db85be12aa219e27c73ffbb7be2e92c488": [
@@ -163,7 +160,7 @@ Running the tool produces four primary audit artifacts in the output directory:
 1. **`receipt_summary.md`**: Human-readable report with status badges, delta proofs, and derived account role audits.
 2. **`receipt.json`**: Full machine-readable receipt for automated CI/CD pipelines.
 3. **`consolidations.csv`**: Tabular CSV breakdown of all source/target indices, tx hashes, and statuses.
-4. **`evidence/verification_metadata.json`**: Raw configuration, block headers, and execution metadata.
+4. **`evidence/`**: Raw block headers, execution receipts, and state query responses.
 
 ---
 

@@ -1,23 +1,23 @@
 [package]
-name = "stvault-receipt"
+name = "staketrace"
 version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
-authors = ["Creatives Onchain", "Lido stVault Contributors"]
-description = "CLI tool and library that verifies the post-submission status of Lido stVault validator consolidation requests across Ethereum execution and consensus layers using exact block-level state delta proofs."
+authors = ["intelliDean <o.michaeldean@gmail.com>", "Staketrace Contributors"]
+description = "High-assurance CLI tool and library to trace, simulate, and verify Ethereum validator consolidations (EIP-7251 MaxEB) and exits (EIP-7002) across Execution and Consensus layers."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/CreativesOnchain/lido-stvault"
-homepage = "https://github.com/CreativesOnchain/lido-stvault"
-keywords = ["ethereum", "lido", "stvault", "eip-7251", "validators"]
+repository = "https://github.com/intelliDean/staketrace"
+homepage = "https://github.com/intelliDean/staketrace"
+keywords = ["ethereum", "eip-7251", "maxeb", "staking", "validator"]
 categories = ["command-line-utilities", "cryptography::cryptocurrencies"]
 
 [lib]
-name = "stvault_receipt"
+name = "staketrace"
 path = "src/lib.rs"
 
 [[bin]]
-name = "stvault-receipt"
+name = "staketrace"
 path = "src/main.rs"
 
 [dependencies]

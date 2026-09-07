@@ -1,12 +1,12 @@
 use clap::Parser;
 use colored::*;
-use std::process::ExitCode;
-use stvault_receipt::cli::CliArgs;
-use stvault_receipt::terminal;
-use stvault_receipt::{
+use staketrace::cli::CliArgs;
+use staketrace::terminal;
+use staketrace::{
     AppError, BeaconClient, ElClient, VerificationEngine, generate_and_save_receipts,
     parse_manifest_file,
 };
+use std::process::ExitCode;
 
 #[tokio::main]
 async fn main() -> ExitCode {

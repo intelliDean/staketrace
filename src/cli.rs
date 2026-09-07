@@ -25,14 +25,14 @@ impl fmt::Display for OutputFormat {
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "stvault-receipt",
-    author = "Lido stVault Contributors",
+    name = "staketrace",
+    author = "intelliDean <o.michaeldean@gmail.com>, Staketrace Contributors",
     version,
-    about = "Verifies post-submission status of Lido stVault validator consolidation requests across Ethereum Execution & Consensus layers.",
-    long_about = "A high-assurance, read-only CLI tool that traces Lido stVault validator consolidation requests from Execution Layer predeploy transactions to exact Consensus Layer pending_consolidations state acceptance."
+    about = "Traces, simulates, and verifies Ethereum validator consolidations (EIP-7251 MaxEB) across Execution & Consensus layers.",
+    long_about = "A high-assurance, read-only CLI tool that traces Ethereum validator consolidation requests from Execution Layer predeploy transactions to exact Consensus Layer pending_consolidations state delta proofs."
 )]
 pub struct CliArgs {
-    /// Path to the Lido stVault consolidation manifest file (JSON or YAML)
+    /// Path to the validator consolidation manifest file (JSON or YAML)
     #[arg(
         short,
         long,
@@ -69,17 +69,12 @@ pub struct CliArgs {
     )]
     pub cl_beacon_api: String,
 
-    /// Lido stVault Dashboard or AccessControl contract address (for fee-exemption role inspection)
+    /// Optional Lido stVault Dashboard or AccessControl contract address (for fee-exemption role audit)
     #[arg(long, env = "ST_VAULT_DASHBOARD", value_name = "ADDRESS")]
     pub st_vault_dashboard: Option<String>,
 
     /// Output directory where receipts and evidence artifacts will be saved
-    #[arg(
-        short,
-        long,
-        default_value = "./stvault_receipt_output",
-        value_name = "DIR"
-    )]
+    #[arg(short, long, default_value = "./staketrace_output", value_name = "DIR")]
     pub output_dir: PathBuf,
 
     /// Output format to print to stdout (all, markdown, json, csv)
@@ -119,7 +114,7 @@ impl CliArgs {
     /// Generates shell completion script into the provided writer.
     pub fn generate_completions_to<W: io::Write>(shell: Shell, buf: &mut W) {
         let mut cmd = Self::command();
-        clap_complete::generate(shell, &mut cmd, "stvault-receipt", buf);
+        clap_complete::generate(shell, &mut cmd, "staketrace", buf);
     }
 
     /// Prints shell autocompletions directly to standard output.
@@ -135,7 +130,7 @@ mod tests {
     #[test]
     fn test_cli_parsing_defaults() {
         let args = CliArgs::parse_from([
-            "stvault-receipt",
+            "staketrace",
             "--manifest",
             "manifest.json",
             "-t",
@@ -151,13 +146,8 @@ mod tests {
 
     #[test]
     fn test_normalized_el_txs_adds_prefix() {
-        let args = CliArgs::parse_from([
-            "stvault-receipt",
-            "--manifest",
-            "manifest.json",
-            "-t",
-            "abcdef",
-        ]);
+        let args =
+            CliArgs::parse_from(["staketrace", "--manifest", "manifest.json", "-t", "abcdef"]);
         assert_eq!(args.normalized_el_txs(), vec!["0xabcdef"]);
     }
 
@@ -166,6 +156,6 @@ mod tests {
         let mut buf = Vec::new();
         CliArgs::generate_completions_to(Shell::Bash, &mut buf);
         let script = String::from_utf8(buf).expect("completion script not utf8");
-        assert!(script.contains("stvault-receipt"));
+        assert!(script.contains("staketrace"));
     }
 }

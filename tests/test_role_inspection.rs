@@ -1,7 +1,7 @@
 use serde_json::json;
+use staketrace::ElClient;
+use staketrace::lido::{LidoRoleInspector, lido_fee_exempt_role_hash};
 use std::collections::HashMap;
-use stvault_receipt::ElClient;
-use stvault_receipt::lido::{LidoRoleInspector, lido_fee_exempt_role_hash};
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

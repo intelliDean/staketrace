@@ -1,15 +1,16 @@
-//! # `stvault-receipt`
+//! # `staketrace`
 //!
-//! High-assurance, read-only verification library and CLI for tracing Lido stVault validator
-//! consolidation requests across Ethereum's Execution Layer (EL) and Consensus Layer (CL).
+//! High-assurance verification library and CLI to trace, simulate, and verify Ethereum validator
+//! consolidation requests (EIP-7251 MaxEB) and exits (EIP-7002) across the Execution Layer (EL)
+//! and Consensus Layer (CL).
 //!
 //! ## Core Verification Flow
 //!
-//! 1. **Parse Manifest**: [`parse_manifest_file`] / [`parse_manifest_str`] parses JSON or YAML Lido stVault manifests.
+//! 1. **Parse Manifest**: [`parse_manifest_file`] / [`parse_manifest_str`] parses JSON or YAML consolidation manifests.
 //! 2. **Execution Layer Verification**: [`el::verify_execution_layer`] traces transactions, validates predeploy interaction (`0x0000BBdDc7CE488642fb579F8B00f3a590007251`), and caches block headers.
-//! 3. **Consensus Layer Verification**: [`cl::verify_consensus_layer`] queries validator indices, matches Beacon block bodies, and verifies the `pending_consolidations` queue.
-//! 4. **Lido Role Inspection**: [`lido::LidoRoleInspector`] checks whether `NODE_OPERATOR_FEE_EXEMPT_ROLE` remains active.
-//! 5. **Receipt Generation**: [`generate_and_save_receipts`] outputs Markdown reports, JSON receipts, and CSV tables.
+//! 3. **Consensus Layer Verification**: [`cl::verify_consensus_layer`] queries validator indices, matches Beacon block bodies, and verifies the `pending_consolidations` state delta.
+//! 4. **Role & Privilege Inspection**: [`lido::LidoRoleInspector`] audits fee-exemption privileges on associated vault contracts.
+//! 5. **Receipt Generation**: [`generate_and_save_receipts`] outputs Markdown reports, JSON receipts, CSV tables, and raw evidence dumps.
 
 pub mod cl;
 pub mod cli;
