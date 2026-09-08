@@ -69,10 +69,12 @@ jobs:
       - name: Package Windows Archive (.zip)
         if: runner.os == 'Windows'
         run: |
-          mkdir staging
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} staging/
-          cp README.md LICENSE-MIT LICENSE-APACHE staging/
-          Compress-Archive -Path staging/* -DestinationPath ${{ matrix.asset_name }}.zip
+          New-Item -ItemType Directory -Force -Path staging
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" -Destination "staging/"
+          Copy-Item "README.md" -Destination "staging/" -ErrorAction SilentlyContinue
+          Copy-Item "LICENSE-MIT" -Destination "staging/" -ErrorAction SilentlyContinue
+          Copy-Item "LICENSE-APACHE" -Destination "staging/" -ErrorAction SilentlyContinue
+          Compress-Archive -Path "staging/*" -DestinationPath "${{ matrix.asset_name }}.zip" -Force
 
       - name: Upload artifact asset
         uses: actions/upload-artifact@v4
@@ -109,3 +111,16 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+      - name: Install Rust toolchain
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
+
